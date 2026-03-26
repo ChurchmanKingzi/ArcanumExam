@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arcanum Exam</title>
+  <link rel="stylesheet" href="/css/game.css">
+  <script src="https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk@1/dist/index.global.js" defer></script>
+</head>
+<body>
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!--  LOBBY SCREEN                                                         -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="screen-lobby" class="screen active">
+    <div class="lobby-container">
+      <h1 class="lobby-title">🔮 Arcanum Exam</h1>
+      <div class="lobby-form">
+        <label for="input-name">Your Name</label>
+        <input id="input-name" type="text" maxlength="20" placeholder="Enter your name…" autocomplete="off" />
+
+        <!-- Avatar upload -->
+        <label>Avatar</label>
+        <div class="avatar-upload-area">
+          <div id="avatar-preview" class="avatar-preview">
+            <span id="avatar-preview-text">?</span>
+          </div>
+          <div class="avatar-controls">
+            <label for="avatar-input" class="btn-avatar-upload">Upload Image</label>
+            <input id="avatar-input" type="file" accept="image/*" class="hidden" />
+            <div id="avatar-history" class="avatar-history"></div>
+          </div>
+        </div>
+
+        <label for="input-room">Room Code</label>
+        <input id="input-room" type="text" maxlength="20" placeholder="e.g. my-room" autocomplete="off" />
+
+        <button id="btn-join" class="btn-primary">Create Room</button>
+      </div>
+
+      <div id="lobby-waiting" class="lobby-waiting hidden">
+        <h2>Room: <span id="lobby-room-name"></span></h2>
+        <div id="lobby-player-list" class="lobby-player-list"></div>
+        <p class="lobby-hint">Waiting for host to start…</p>
+        <button id="btn-start" class="btn-primary hidden">Start Game</button>
+        <button id="btn-lobby-leave" class="btn-lobby-leave">Leave Room</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!--  GAME SCREEN                                                          -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="screen-game" class="screen">
+    <div id="table" class="table">
+      <div id="table-center" class="table-center">
+        <div class="table-felt"></div>
+      </div>
+    </div>
+
+    <!-- Proctors: bottom-left corner -->
+    <div id="proctor-area" class="proctor-area">
+      <div class="proctor-label">Proctors</div>
+      <div id="proctor-grid" class="proctor-grid"></div>
+    </div>
+
+    <div id="phase-banner" class="phase-banner hidden">
+      <span id="phase-text"></span>
+    </div>
+
+    <button id="btn-leave" class="btn-leave">Leave Game</button>
+    <div id="round-counter" class="round-counter hidden">Round <span id="round-number">1</span></div>
+    <div id="item-usage-container" class="item-usage-container hidden"></div>
+    <div id="no-spells-banner" class="no-spells-banner hidden">🚫 Spells Blocked!</div>
+    <div id="seagulls-banner" class="seagulls-banner hidden">🐦 Student attacks deal Spell damage!</div>
+    <div id="barrel-home-banner" class="barrel-home-banner hidden">🛢 Barrel Home: ...</div>
+    <div id="mummy-lock-banner" class="mummy-lock-banner hidden">⚰️ Familiars locked in discard!</div>
+    <div id="flashbang-banner" class="flashbang-banner hidden">💥 Flashbanged! It is currently impossible to choose single targets!</div>
+    <div id="peaceful-banner" class="peaceful-banner hidden">🕊️ Peaceful — All damage is negated!</div>
+    <button id="btn-pass" class="btn-pass hidden">Pass</button>
+    <button id="btn-skip-snare" class="btn-pass hidden">Skip Snare</button>
+    <button id="btn-confirm-magic-modifier" class="btn-pass hidden">Confirm Magic Modifier</button>
+    <button id="btn-discard" class="btn-discard hidden">Discard</button>
+
+    <!-- Targeting mode UI (for familiar activation effects) -->
+    <div id="targeting-overlay" class="targeting-overlay hidden">
+      <div id="targeting-label" class="targeting-label">Choose 3 targets!</div>
+      <div class="targeting-buttons">
+        <button id="btn-cancel-target" class="btn-cancel-target">Cancel</button>
+        <button id="btn-sacrifice-hind" class="btn-sacrifice-hind hidden">Sacrifice 🦌</button>
+        <button id="btn-sun-beam-heal" class="btn-sun-beam-heal hidden">Heal</button>
+        <button id="btn-attack" class="btn-attack btn-attack-disabled">Attack!</button>
+      </div>
+    </div>
+
+    <!-- Active spell display (shown to ALL players when a spell is cast) -->
+    <div id="active-spell-overlay" class="active-spell-overlay hidden">
+      <div class="active-spell-label">Spell Cast!</div>
+      <div id="active-spell-player" class="active-spell-player"></div>
+      <div id="active-spell-card" class="active-spell-card"></div>
+    </div>
+
+    <div id="card-zoom" class="card-zoom hidden">
+      <img id="card-zoom-img" src="" alt="Zoomed card" />
+    </div>
+
+    <!-- Discard pile viewer overlay -->
+    <div id="discard-viewer" class="discard-viewer hidden">
+      <div class="discard-viewer-title"></div>
+      <div class="discard-viewer-cards"></div>
+      <div class="discard-viewer-hint">Right-click or Escape to close</div>
+    </div>
+
+    <!-- Revive picker (Phoenix) -->
+    <div id="revive-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">Choose a Familiar to revive!</div>
+      <div class="revive-picker-cards"></div>
+    </div>
+
+    <!-- Equip trigger picker (Rain Viola etc.) -->
+    <div id="equip-trigger-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">Choose a card to add to your hand!</div>
+      <div class="equip-trigger-picker-cards"></div>
+    </div>
+
+    <!-- Smug Coin picker (multi-select from discard) -->
+    <div id="smug-coin-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">🪙 Choose cards from your discard pile!</div>
+      <div class="smug-coin-picker-cards"></div>
+      <button id="smug-coin-confirm" class="smug-coin-confirm-btn" disabled>Confirm (0/0)</button>
+    </div>
+
+    <!-- Overflowing Chalice: discard card picker -->
+    <div id="chalice-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">🏺 Choose cards from your discard pile!</div>
+      <div class="chalice-picker-cards revive-picker-cards"></div>
+      <button id="chalice-confirm" class="smug-coin-confirm-btn" disabled>Add to hand (0/0)</button>
+    </div>
+
+    <!-- Relic in the Sky: pick up to 5 cards from own discard -->
+    <div id="relic-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">🏛️ Choose up to 5 cards to recover!</div>
+      <div class="relic-picker-cards revive-picker-cards"></div>
+      <div style="display:flex;gap:8px;justify-content:center">
+        <button id="relic-confirm" class="smug-coin-confirm-btn">Add to hand (0/5)</button>
+        <button id="relic-cancel-btn" class="smug-coin-confirm-btn" style="background:#c0392b">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Winged Camera: pick 1-3 Familiars from one discard pile -->
+    <div id="winged-camera-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">📷 Choose 1–3 Familiars from the same discard pile!</div>
+      <div id="winged-camera-picker-cards" class="revive-picker-cards wc-picker-cards"></div>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
+        <button id="winged-camera-confirm" class="smug-coin-confirm-btn" disabled>Add to hand (0/3)</button>
+        <button id="winged-camera-cancel" class="smug-coin-confirm-btn" style="background:#c0392b">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Portal: student picker -->
+    <div id="portal-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">🌀 Choose a Student's escape condition to adopt!</div>
+      <div class="portal-picker-cards revive-picker-cards"></div>
+    </div>
+
+    <!-- Price Tag: activation prompt (shown to Price Tag owners) -->
+    <div id="price-tag-prompt" class="snare-prompt hidden">
+      <div class="price-tag-prompt-title">🏷️ Play Price Tag?</div>
+      <div class="snare-prompt-timer"><div class="snare-prompt-timer-bar price-tag-timer-bar"></div></div>
+      <div class="price-tag-prompt-desc"></div>
+      <div class="price-tag-prompt-buttons"></div>
+    </div>
+
+    <!-- Price Tag: overpay prompt (shown to the equipping player) -->
+    <div id="price-tag-overpay-prompt" class="snare-prompt hidden">
+      <div class="price-tag-overpay-title">💸 Overpay?</div>
+      <div class="snare-prompt-timer"><div class="snare-prompt-timer-bar price-tag-overpay-timer-bar"></div></div>
+      <div class="price-tag-overpay-desc"></div>
+      <div class="price-tag-overpay-buttons"></div>
+    </div>
+
+    <!-- Smug Coin reveal popup (shown to other players) -->
+    <div id="smug-coin-reveal" class="smug-coin-reveal hidden">
+      <div class="smug-coin-reveal-title">🪙 Smug Coin</div>
+      <div class="smug-coin-reveal-text"></div>
+      <div class="smug-coin-reveal-cards"></div>
+      <button id="smug-coin-reveal-ok" class="smug-coin-confirm-btn">Ok</button>
+    </div>
+
+    <!-- Sneeze Rocket: familiar picker -->
+    <div id="sneeze-rocket-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">🚀 Choose a Familiar to enhance!</div>
+      <div class="sneeze-rocket-picker-cards"></div>
+    </div>
+
+    <!-- Creation Fairy: recovery from discard picker -->
+    <div id="fairy-recover-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">🧚 Creation Fairy — Recover a card from your discard pile!</div>
+      <div class="fairy-recover-picker-cards"></div>
+    </div>
+
+    <!-- War Profiteering passive: recover Non-Item cards from discard -->
+    <div id="war-profiteering-picker" class="revive-picker war-profiteering-picker hidden">
+      <div class="revive-picker-title" id="war-profiteering-title">💰 War Profiteering — Select a card to recover!</div>
+      <div class="war-profiteering-cards"></div>
+      <button id="war-profiteering-confirm" class="btn-confirm-target hidden">Recover</button>
+    </div>
+
+    <!-- Cute Bunny passive: retrieve a discarded Familiar -->
+    <div id="bunny-retrieve-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">🐰 Cute Bunny — Retrieve a discarded Familiar?</div>
+      <div class="bunny-retrieve-picker-cards"></div>
+    </div>
+
+    <!-- Undurdle passive: recover a Familiar from discard -->
+    <div id="undurdle-recover-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">🐢 Add a Familiar back to your hand with Undurdle?</div>
+      <div class="undurdle-recover-picker-cards"></div>
+    </div>
+
+    <!-- Cute Familiar replacement picker -->
+    <div id="cute-familiar-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">💔 Cute Familiar — Choose a replacement!</div>
+      <div class="cute-familiar-picker-cards"></div>
+    </div>
+
+    <!-- Wooden Horse summon picker -->
+    <div id="wooden-horse-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">🐴 Wooden Horse — Summon a Familiar!</div>
+      <div class="wooden-horse-picker-cards"></div>
+    </div>
+
+    <!-- Golden Egg hatch prompt -->
+    <div id="golden-egg-prompt" class="snare-prompt hidden">
+      <div class="snare-prompt-title golden-egg-prompt-title">🥚 Hatch your Golden Egg?</div>
+      <div class="snare-prompt-timer"><div class="snare-prompt-timer-bar golden-egg-timer-bar"></div></div>
+      <div class="snare-prompt-buttons golden-egg-prompt-buttons"></div>
+    </div>
+
+    <!-- Golden Egg picker -->
+    <div id="golden-egg-picker" class="revive-picker hidden">
+      <div class="revive-picker-title">🥚 Choose a Familiar to hatch into!</div>
+      <div class="golden-egg-picker-cards"></div>
+    </div>
+
+    <!-- Oracle type picker -->
+    <div id="oracle-type-picker" class="oracle-picker hidden">
+      <div class="oracle-picker-title">🔮 Declare a card type!</div>
+      <div class="oracle-type-buttons"></div>
+    </div>
+
+    <!-- Oracle result overlay -->
+    <div id="oracle-result-overlay" class="oracle-result-overlay hidden">
+      <div class="oracle-result-content">
+        <div class="oracle-result-type"></div>
+        <div class="oracle-result-card"></div>
+        <div class="oracle-result-verdict"></div>
+      </div>
+    </div>
+
+    <!-- Snare reaction prompt -->
+    <div id="snare-prompt" class="snare-prompt hidden">
+      <div class="snare-prompt-title">Activate Snare?</div>
+      <div class="snare-prompt-timer"><div class="snare-prompt-timer-bar"></div></div>
+      <div class="snare-prompt-buttons"></div>
+    </div>
+
+    <!-- Jetpack evasion prompt -->
+    <div id="jetpack-prompt" class="snare-prompt hidden">
+      <div class="jetpack-prompt-title">🚀 Evade this attack?</div>
+      <div class="snare-prompt-timer"><div class="snare-prompt-timer-bar jetpack-prompt-timer-bar"></div></div>
+      <div class="jetpack-prompt-buttons"></div>
+    </div>
+
+    <!-- Cool Kid protection prompt -->
+    <div id="coolkid-prompt" class="snare-prompt hidden">
+      <div class="coolkid-prompt-title">Protect your Familiars?</div>
+      <div class="snare-prompt-timer"><div class="coolkid-prompt-timer-bar"></div></div>
+      <div class="coolkid-prompt-buttons"></div>
+    </div>
+
+    <div id="nerdycheese-prompt" class="snare-prompt hidden">
+      <div class="nerdycheese-prompt-title">🧀📖 Cast a Spell?</div>
+      <div class="snare-prompt-timer"><div class="snare-prompt-timer-bar nerdycheese-prompt-timer-bar"></div></div>
+      <div class="nerdycheese-prompt-buttons"></div>
+    </div>
+
+    <!-- Barbarian Sword negate prompt -->
+    <div id="barbarian-sword-prompt" class="snare-prompt hidden">
+      <div class="barbarian-sword-prompt-title">⚔️🚫 Negate a Familiar's passive?</div>
+      <div class="snare-prompt-timer"><div class="snare-prompt-timer-bar barbarian-sword-prompt-timer-bar"></div></div>
+      <div class="barbarian-sword-prompt-buttons"></div>
+    </div>
+
+    <div id="prodigy-prompt" class="snare-prompt hidden">
+      <div class="prodigy-prompt-title">Ignore this Cost?</div>
+      <div class="snare-prompt-timer"><div class="prodigy-prompt-timer-bar"></div></div>
+      <div class="prodigy-prompt-buttons"></div>
+    </div>
+
+    <div id="elixir-prompt" class="snare-prompt hidden">
+      <div class="elixir-prompt-title">⚗️ Prevent your Student from dying?</div>
+      <div class="snare-prompt-timer"><div class="elixir-prompt-timer-bar"></div></div>
+      <div class="elixir-prompt-buttons"></div>
+    </div>
+
+    <div id="ankh-prompt" class="snare-prompt hidden">
+      <div class="elixir-prompt-title">☥ Revive your Student at 1 HP? (They still die first!)</div>
+      <div class="snare-prompt-timer"><div class="elixir-prompt-timer-bar ankh-prompt-timer-bar"></div></div>
+      <div class="ankh-prompt-buttons"></div>
+    </div>
+
+    <div id="punch-in-the-box-prompt" class="snare-prompt hidden">
+      <div class="snare-prompt-title punch-in-the-box-prompt-title">🥊 Play Punch in the Box?</div>
+      <div class="snare-prompt-timer"><div class="snare-prompt-timer-bar punch-in-the-box-timer-bar"></div></div>
+      <div class="punch-in-the-box-prompt-desc"></div>
+      <div class="punch-in-the-box-prompt-buttons"></div>
+    </div>
+
+    <div id="weakening-crystal-prompt" class="snare-prompt hidden">
+      <div class="snare-prompt-title">🔮 Halve damage with Weakening Crystal?</div>
+      <div class="snare-prompt-timer"><div class="snare-prompt-timer-bar wc-timer-bar"></div></div>
+      <div class="wc-prompt-desc"></div>
+      <div class="wc-prompt-buttons"></div>
+    </div>
+
+    <div id="sbr-prompt" class="snare-prompt hidden">
+      <div class="snare-prompt-title">🪨 Play Sword-Breaking Rock?</div>
+      <div class="snare-prompt-timer"><div class="snare-prompt-timer-bar sbr-timer-bar"></div></div>
+      <div class="sbr-desc"></div>
+      <div class="sbr-buttons"></div>
+    </div>
+
+    <div id="sbr-equip-picker" class="sbr-equip-picker hidden">
+      <div class="sbr-equip-picker-title">🪨 Sword-Breaking Rock</div>
+      <div class="sbr-equip-desc"></div>
+      <div class="sbr-equip-grid"></div>
+      <button class="sbr-equip-confirm" disabled>💥 Destroy Equip!</button>
+    </div>
+
+    <div id="pickaxe-prompt" class="snare-prompt hidden">
+      <div class="pickaxe-prompt-title">⛏️ Skip discarding?</div>
+      <div class="snare-prompt-timer"><div class="pickaxe-prompt-timer-bar"></div></div>
+      <div class="pickaxe-prompt-buttons"></div>
+    </div>
+
+    <div id="energy-core-picker" class="energy-core-picker hidden">
+      <div class="energy-core-picker-title">⚡ Energy Core — Pick up to 3 cards to retrieve!</div>
+      <div class="energy-core-picker-cards"></div>
+      <div class="energy-core-picker-footer">
+        <span class="energy-core-count-label">Selected: <span id="energy-core-count">0</span> / 3</span>
+        <button id="energy-core-confirm" class="snare-prompt-btn snare-yes">Confirm (<span id="energy-core-confirm-count">0</span>)</button>
+        <button id="energy-core-skip" class="snare-prompt-btn snare-no">Take nothing</button>
+      </div>
+    </div>
+
+    <div id="potion-of-greed-picker" class="energy-core-picker hidden">
+      <div class="energy-core-picker-title">🧪 Potion of Greed — Pick exactly 2 cards to retrieve!</div>
+      <div class="energy-core-picker-cards potion-of-greed-picker-cards"></div>
+      <div class="energy-core-picker-footer">
+        <span class="energy-core-count-label">Selected: <span id="potion-of-greed-count">0</span> / 2</span>
+        <button id="potion-of-greed-confirm" class="snare-prompt-btn snare-yes" disabled>Confirm (<span id="potion-of-greed-confirm-count">0</span>)</button>
+      </div>
+    </div>
+
+    <div id="playing-cards-prompt" class="snare-prompt hidden">
+      <div class="playing-cards-prompt-title">🃏 Discard a card to crit?</div>
+      <div class="snare-prompt-timer"><div class="playing-cards-prompt-timer-bar"></div></div>
+      <div class="playing-cards-prompt-buttons"></div>
+    </div>
+
+    <div id="potion-launcher-prompt" class="snare-prompt hidden">
+      <div class="potion-launcher-prompt-title">🧪 Use an Item from discard?</div>
+      <div class="snare-prompt-timer"><div class="potion-launcher-prompt-timer-bar"></div></div>
+      <div class="potion-launcher-prompt-buttons"></div>
+    </div>
+
+    <div id="potion-launcher-select" class="revive-picker hidden">
+      <div class="revive-picker-title">🧪 Select an Item to activate:</div>
+      <div class="potion-launcher-select-cards revive-picker-cards"></div>
+      <button id="potion-launcher-select-cancel" class="btn-cancel-target">Cancel</button>
+    </div>
+
+    <!-- Copy Device item picker -->
+    <div id="copy-device-select" class="revive-picker hidden">
+      <div class="revive-picker-title">📠 Copy an Item from any discard (FREE):</div>
+      <div class="copy-device-select-cards revive-picker-cards"></div>
+      <button id="copy-device-select-cancel" class="btn-cancel-target">Cancel</button>
+    </div>
+
+    <!-- Hydra revive prompt -->
+    <div id="hydra-revive-prompt" class="snare-prompt hidden">
+      <div class="hydra-revive-title">🐉 Revive Cute Hydra?</div>
+      <div class="hydra-revive-subtitle">Discard 1-3 cards to resummon</div>
+      <div class="hydra-revive-buttons"></div>
+    </div>
+
+    <div id="tiny-phoenix-revive-prompt" class="snare-prompt hidden">
+      <div class="tiny-phoenix-revive-title">🔥🐦 Revive Tiny Phoenix?</div>
+      <div class="tiny-phoenix-revive-subtitle">Discard 1 card to resummon</div>
+      <div class="tiny-phoenix-revive-buttons"></div>
+    </div>
+
+    <!-- Chilly Wizzy passive prompt -->
+    <div id="cw-passive-prompt" class="snare-prompt hidden">
+      <div class="cw-passive-title">❄️ Should Chilly Wizzy cast a Spell?</div>
+      <div class="snare-prompt-timer"><div class="cw-passive-timer-bar"></div></div>
+      <div class="cw-passive-buttons"></div>
+    </div>
+
+    <!-- Guardian Statue transfer overlay -->
+    <div id="guardian-overlay" class="guardian-overlay hidden">
+      <div class="guardian-panel">
+        <div class="guardian-title">Transfer HP</div>
+        <div class="guardian-cards">
+          <div class="guardian-card-wrap">
+            <div id="guardian-source-card" class="guardian-card"></div>
+            <div id="guardian-source-hp" class="guardian-hp"></div>
+            <div class="guardian-card-label">Guardian</div>
+          </div>
+          <div class="guardian-slider-wrap">
+            <input type="range" id="guardian-slider" min="0" max="1" value="0" class="guardian-slider">
+            <div id="guardian-slider-label" class="guardian-slider-label">0 HP</div>
+          </div>
+          <div class="guardian-card-wrap">
+            <div id="guardian-target-card" class="guardian-card"></div>
+            <div id="guardian-target-hp" class="guardian-hp"></div>
+            <div class="guardian-card-label">Target</div>
+          </div>
+        </div>
+        <button id="guardian-confirm" class="guardian-confirm">Confirm Transfer</button>
+      </div>
+    </div>
+
+    <!-- Game over overlay with fireworks -->
+    <div id="game-over-overlay" class="game-over-overlay hidden">
+      <canvas id="fireworks-canvas" class="fireworks-canvas"></canvas>
+      <div class="game-over-content">
+        <div class="game-over-title">🏆 Game Over! 🏆</div>
+        <div id="game-over-winners" class="game-over-winners"></div>
+        <div class="game-over-hint">Click or press Escape to return to lobby</div>
+      </div>
+    </div>
+
+    <div id="hand-area" class="hand-area">
+      <div class="hand-controls">
+        <button id="btn-sort-hand" class="hand-ctrl-btn" title="Sort hand by type">Sort</button>
+        <button id="btn-shuffle-hand" class="hand-ctrl-btn" title="Shuffle hand randomly">Shuffle</button>
+      </div>
+      <div id="hand-cards" class="hand-cards"></div>
+    </div>
+
+    <div id="my-board" class="my-board">
+      <!-- Upper row: familiars-left + student + familiars-right -->
+      <div id="my-student-row" class="my-student-row">
+        <div id="my-familiars-left" class="my-familiars"></div>
+        <div id="my-student-slot" class="board-slot student-slot">
+          <span class="slot-label">Student</span>
+        </div>
+        <div id="my-familiars-right" class="my-familiars"></div>
+      </div>
+      <!-- Snares row (face-up to self) -->
+      <div id="my-snare-row" class="my-snare-row"></div>
+      <!-- Lower row: equips -->
+      <div id="my-equip-row" class="my-equip-row"></div>
+      <!-- Discard pile: far left -->
+      <div id="my-discard-slot" class="board-slot discard-slot">
+        <span class="slot-label">Discard</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="rain-overlay"></div>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

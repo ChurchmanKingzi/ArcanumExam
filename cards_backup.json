@@ -1,0 +1,1723 @@
+{
+  "Angelwing Backpack": {
+    "type": "Equip",
+    "cost": 2
+  },
+  "Angry Cheese": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Anti-Magic Blade": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Anti-Magnet": {
+    "type": "Equip",
+    "cost": 2
+  },
+  "Anti-Magnetic Armor": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Balloons": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Barbarian Sword": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Barrel Home": {
+    "type": "Equip",
+    "cost": 2
+  },
+  "Basic Armor": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Bazooka": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Berserk Mode": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Bomb Arrow": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Charm of Balance": {
+    "type": "Equip",
+    "cost": 2
+  },
+  "Control Device": {
+    "type": "Equip",
+    "cost": 3
+  },
+  "Control Monitors": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Cool Cheese": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Crystal Ball": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Cute Cheese": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Diver Helmet": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Doomsday Bomb": {
+    "type": "Equip",
+    "cost": 4
+  },
+  "Edgy Cloak": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Field Standard": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Forbidden Grimoire": {
+    "type": "Equip",
+    "cost": 2
+  },
+  "Frozen Scythe": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Future Tech Lamp": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Giant Hammer": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Gravediggers Shovel": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Guardian Angel": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Halberd": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Hat of Madness": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Heart Bow": {
+    "type": "Equip",
+    "cost": 2
+  },
+  "Heart of Ice": {
+    "type": "Equip",
+    "cost": 2
+  },
+  "Holy Cheese": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Invisibility Cloak": {
+    "type": "Equip",
+    "cost": 2
+  },
+  "Jetpack": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Lifeforce Howitzer": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Literal Cannon": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Magic Modifier": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Mana Absorbing Crystal": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Mechanized Fists": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Mine Cart": {
+    "type": "Equip",
+    "cost": 2
+  },
+  "Nerdy Cheese": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Phantoms Sword": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Pickaxe": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Playing Cards": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Possessed Blade": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Potion Launcher": {
+    "type": "Equip",
+    "cost": 2
+  },
+  "Protective Shadow": {
+    "type": "Equip",
+    "cost": 3
+  },
+  "Rain Viola": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Rocket Fist": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Scimitar": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Shield of Death": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Shield of Life": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Sickly Cheese": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Sinister Idol": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Skeleton Kings Sword": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Spiky Armor": {
+    "type": "Equip",
+    "cost": 3
+  },
+  "Storm Piano": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Summoning Circle": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Sword of the Chosen One": {
+    "type": "Equip",
+    "cost": 4
+  },
+  "Thaw Blade": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "The Storm Blade": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "The Sun Sword": {
+    "type": "Equip",
+    "cost": 1
+  },
+  "Thunder Trumpet": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Wanted Poster": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "Winged Crown": {
+    "type": "Equip",
+    "cost": 0
+  },
+  "3-Headed Giant": {
+    "type": "Familiar",
+    "cost": 5,
+    "hp": 30
+  },
+  "Bird": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 12
+  },
+  "Blue-Ice Dragon": {
+    "type": "Familiar",
+    "cost": 4,
+    "hp": 20
+  },
+  "Brain Spider": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Cheeky Monkey": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Corrupted Shark": {
+    "type": "Familiar",
+    "cost": 3,
+    "hp": 15
+  },
+  "Corrupted Siren": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 12
+  },
+  "Country Harpy": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Cy-Bee": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 12
+  },
+  "Double-Headed Phoenix": {
+    "type": "Familiar",
+    "cost": 4,
+    "hp": 35
+  },
+  "Dwarf Smith": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 12
+  },
+  "Flame Fairy": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 10
+  },
+  "Goblin Chief": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 12
+  },
+  "Golden Ladybug": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 1
+  },
+  "Golden Vermin": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Graveworm": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Guardian Statue": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 20
+  },
+  "Hammer Horse": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 10
+  },
+  "Haressassin": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 5
+  },
+  "Harp-y": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Harpy Metalhead": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 12
+  },
+  "Hell Demon": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 8
+  },
+  "Hell Pup": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 14
+  },
+  "Hungry Orc": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 18
+  },
+  "Hungry Shark": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 15
+  },
+  "Infected Pests": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 18
+  },
+  "Jar Rats": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 8
+  },
+  "Land Piranha": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 10
+  },
+  "Land Sharks": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 12
+  },
+  "Little Spooder": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 10
+  },
+  "Man-Eater Birds": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 10
+  },
+  "Moonlight Butterfly": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 1
+  },
+  "Mountain Boars": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 15
+  },
+  "Nightmare": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 20
+  },
+  "Oracle": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 8
+  },
+  "Pengu": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 5
+  },
+  "Rapping Harpy": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 12
+  },
+  "Scavenging Crane": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Serpent Cultist": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 12
+  },
+  "Skeleton Archer": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 10
+  },
+  "Skeleton Bard": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 12
+  },
+  "Skeleton Healer": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 10
+  },
+  "Skeleton Mage": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 10
+  },
+  "Skeleton Necromancer": {
+    "type": "Familiar",
+    "cost": 3,
+    "hp": 10
+  },
+  "Skeleton Priest": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 10
+  },
+  "Skeleton Reaper": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 10
+  },
+  "Smug Evil Raccoon": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 20
+  },
+  "Snobbit": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "The Spawn Mother": {
+    "type": "Familiar",
+    "cost": 5,
+    "hp": 30
+  },
+  "Thing in the Hull": {
+    "type": "Familiar",
+    "cost": 3,
+    "hp": 25
+  },
+  "Undead Desert Worm": {
+    "type": "Familiar",
+    "cost": 3,
+    "hp": 25
+  },
+  "Unsettling Vulture": {
+    "type": "Familiar",
+    "cost": -1,
+    "hp": 15
+  },
+  "War Cyclops": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 18
+  },
+  "Werz": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "White Bull": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 25
+  },
+  "Angler Angel": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 1
+  },
+  "Ash Worms": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 2
+  },
+  "Bomb Golems": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 20
+  },
+  "Bomblebee": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 1
+  },
+  "Cat Mummy": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 1
+  },
+  "Chilly Dog": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 14
+  },
+  "Chilly Wizzy": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 10
+  },
+  "Clone": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 1
+  },
+  "Coatl": {
+    "type": "Familiar",
+    "cost": 5,
+    "hp": 25
+  },
+  "Creation Fairy": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 10
+  },
+  "Crimson Skull Spider": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 8
+  },
+  "Crying Seagulls": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 5
+  },
+  "Cute Bunny": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 5
+  },
+  "Cute Familiar": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 1
+  },
+  "Cute Hydra": {
+    "type": "Familiar",
+    "cost": -1,
+    "hp": 5
+  },
+  "Diamond Golem": {
+    "type": "Familiar",
+    "cost": 5,
+    "hp": 35
+  },
+  "Diamond Spider": {
+    "type": "Familiar",
+    "cost": 4,
+    "hp": 25
+  },
+  "Eyeballs": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 10
+  },
+  "Futuristic Mech": {
+    "type": "Familiar",
+    "cost": 3,
+    "hp": 20
+  },
+  "Gerrymander": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 16
+  },
+  "Golden Egg": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 25
+  },
+  "Golden Hind": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 1
+  },
+  "Gorgon Sister": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 12
+  },
+  "Grave Crawler": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 1
+  },
+  "Great King Trex": {
+    "type": "Familiar",
+    "cost": 3,
+    "hp": 20
+  },
+  "Great Vanguard Demon": {
+    "type": "Familiar",
+    "cost": 5,
+    "hp": 30
+  },
+  "Harpy Warrior": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 15
+  },
+  "Helicopter Snowman": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Ifrit": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 12
+  },
+  "Inconspicuous Lawn Gnome": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 4
+  },
+  "Leprechaun": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 10
+  },
+  "Living Glacier": {
+    "type": "Familiar",
+    "cost": 5,
+    "hp": 35
+  },
+  "Mimic": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Moonlight Hawk": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 16
+  },
+  "Mr. Snowman": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Mummy Guards": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 14
+  },
+  "Nature Fairy": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 10
+  },
+  "Pawn": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Plant Golem": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 20
+  },
+  "Rain Fairy": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 10
+  },
+  "Reproducing Slime": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 8
+  },
+  "Royal Corgi": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 5
+  },
+  "Sandy Blob": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Stuffed Teddy": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 5
+  },
+  "Surprised Lion": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 12
+  },
+  "Time Keeper Rabbit": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 20
+  },
+  "Tiny Phoenix": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 5
+  },
+  "Undead Fish": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 1
+  },
+  "Undead Scorpion": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 15
+  },
+  "Undurdle": {
+    "type": "Familiar",
+    "cost": 2,
+    "hp": 15
+  },
+  "Vengeful Ghost": {
+    "type": "Familiar",
+    "cost": 1,
+    "hp": 1
+  },
+  "Warhorse": {
+    "type": "Familiar",
+    "cost": 0,
+    "hp": 8
+  },
+  "Action Figures": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Birthday Present": {
+    "type": "Item",
+    "cost": 2
+  },
+  "Blueprints": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Book of Doom": {
+    "type": "Item",
+    "cost": -1
+  },
+  "Bottled Flame": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Bottled Lightning": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Burned Contract": {
+    "type": "Item",
+    "cost": 2
+  },
+  "Cool Drink": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Copy Device": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Dark Gear": {
+    "type": "Item",
+    "cost": 3
+  },
+  "Deadly Poison": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Deepsea Idol": {
+    "type": "Item",
+    "cost": 2
+  },
+  "Elixir of Immortality": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Energy Core": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Energy Storage": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Escape Rope": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Fairy Idol": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Fire Bomb": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Flame Fairy Statue": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Flashbang": {
+    "type": "Item",
+    "cost": 2
+  },
+  "Giga Steroids": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Glass of Marbles": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Golden Ankh": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Golden Apple": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Golden Banana": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Healing Potion": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Heart of Cards": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Historic Records": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Magic Amber": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Magic Amethyst": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Magic Cobalt": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Magic Emerald": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Magic Lamp": {
+    "type": "Item",
+    "cost": 2
+  },
+  "Magic Ruby": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Magic Sapphire": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Magic Topaz": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Magnetic Potion": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Master Key": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Meteor": {
+    "type": "Item",
+    "cost": 0
+  },
+  "MOE Bomb": {
+    "type": "Item",
+    "cost": 4
+  },
+  "Mystery Box": {
+    "type": "Item",
+    "cost": 4
+  },
+  "Orc Skull": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Overflowing Chalice": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Poisonous Potion": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Portal": {
+    "type": "Item",
+    "cost": 3
+  },
+  "Price Tag": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Punch in the Box": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Relic in the Sky": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Remote Detonator": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Resuscitation Potion": {
+    "type": "Item",
+    "cost": 3
+  },
+  "Rusting Crystal": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Shard of Chaos": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Smug Coin": {
+    "type": "Item",
+    "cost": -1
+  },
+  "Smugglers Crate": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Sneeze Rocket": {
+    "type": "Item",
+    "cost": -1
+  },
+  "Snow Cannon": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Spice Mortar": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Sword-Breaking Rock": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Treacherous Crystal": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Treasure Chest": {
+    "type": "Item",
+    "cost": 0
+  },
+  "War Chest": {
+    "type": "Item",
+    "cost": 1
+  },
+  "Weakening Crystal": {
+    "type": "Item",
+    "cost": 0
+  },
+  "Winged Camera": {
+    "type": "Item",
+    "cost": 1
+  },
+  "The Disliked Teacher": {
+    "type": "Proctor"
+  },
+  "The Familiar Trainer": {
+    "type": "Proctor"
+  },
+  "The Groundskeeper": {
+    "type": "Proctor"
+  },
+  "The Headmaster": {
+    "type": "Proctor"
+  },
+  "The Librarian": {
+    "type": "Proctor"
+  },
+  "The Witch Teacher": {
+    "type": "Proctor"
+  },
+  "Anti Intruder System": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Anti Magic Shield": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Anti Magic Zone": {
+    "type": "Snare",
+    "cost": 2
+  },
+  "Arson Trap": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Bluff": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Boiling Oil": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Booby Trap": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Book Trap": {
+    "type": "Snare",
+    "cost": 3
+  },
+  "Bottomless Sand Hole": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Bounce Trap": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Bucket Prank": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Capture Net": {
+    "type": "Snare",
+    "cost": 2
+  },
+  "Creepy Clown in the Box": {
+    "type": "Snare",
+    "cost": 2
+  },
+  "Crimson Web": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Crystal Well": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Deceptive Melody": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Difficulty Lever": {
+    "type": "Snare",
+    "cost": 3
+  },
+  "Divine Punishment": {
+    "type": "Snare",
+    "cost": 2
+  },
+  "Doom Clock": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Eclipse": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Exploding Door": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Explosive Drone": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Fire all Cannons": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Flesh-Eater Swarm Trap": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Friendly Fireball": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Frost Rune": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Ghostly Warning": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Gift of Death": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Glass Wall": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Hot Potato": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Icy Grave": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Induce Fear": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Inverted Levitation": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Jumpscare": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Jungle Moat": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Kidnapping": {
+    "type": "Snare",
+    "cost": 2
+  },
+  "Last Second Escape": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Letter of Lies": {
+    "type": "Snare",
+    "cost": 2
+  },
+  "Magic Mirror": {
+    "type": "Snare",
+    "cost": 4
+  },
+  "Overcharged Trap": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Overheal Shock": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Pillaged House": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Point-Blank Annihilation": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Poisoned Meat": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Potion of Greed": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Powder Keg": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Rain of Arrows": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Reflection": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Reverse Prism": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Reverse Trap": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Rolling Boulder": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Skull Bomb Trap": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Skull Carpet Bombing": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Slippery Ice": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Spacial Crevice": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Spider Avalanche": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Spike Trap": {
+    "type": "Snare",
+    "cost": 1
+  },
+  "Surprise Party": {
+    "type": "Snare",
+    "cost": 2
+  },
+  "The Stink Pile": {
+    "type": "Snare",
+    "cost": 2
+  },
+  "Toxic Trap": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Treasury": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Uncool Malfunction": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Unreasonable Anger": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Volcanic River": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Wooden Horse": {
+    "type": "Snare",
+    "cost": 0
+  },
+  "Armageddon": {
+    "type": "Spell",
+    "cost": 4
+  },
+  "Arms Trade": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Aurora Borealis": {
+    "type": "Spell",
+    "cost": 2
+  },
+  "Big Oopsie": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Body Swap": {
+    "type": "Spell",
+    "cost": 4
+  },
+  "Burning Finger": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Butterfly Cloud": {
+    "type": "Spell",
+    "cost": 3
+  },
+  "Butterfly Form": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Cataclysm": {
+    "type": "Spell",
+    "cost": 4
+  },
+  "Chaos Magic": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Cold Coffin": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Confusing Melody": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Cosmic Balance": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Create Illusion": {
+    "type": "Spell",
+    "cost": 3
+  },
+  "Cure": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Curse": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Death-Defying Blast": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Detection": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Diplomacy": {
+    "type": "Spell",
+    "cost": 2
+  },
+  "Disruption Ray": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Dread": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Dream Dust": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Energy Beam": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Energy Drain": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Explosion": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Fire Bolts": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Fireball": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Fireshield": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Firewall": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Flame Avalanche": {
+    "type": "Spell",
+    "cost": 3
+  },
+  "Flame Pillars": {
+    "type": "Spell",
+    "cost": 2
+  },
+  "Flash Flood": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Frost Breaker": {
+    "type": "Spell",
+    "cost": -1
+  },
+  "Gathering Storm": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Great Filter": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Hole in the Sky": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Iceage": {
+    "type": "Spell",
+    "cost": 4
+  },
+  "Icebolt": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Lightball": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Live Show": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Looming Threat": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Love Shot": {
+    "type": "Spell",
+    "cost": 2
+  },
+  "Magic Hammer": {
+    "type": "Spell",
+    "cost": 2
+  },
+  "Magic Show": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Mana Beacon": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Most Secret Magic": {
+    "type": "Spell",
+    "cost": 4
+  },
+  "Neurotoxin": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Overheat": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Phoenix Bombardment": {
+    "type": "Spell",
+    "cost": 3
+  },
+  "Poisoned Well": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Pressure Projectile": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Rain of Spores": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Reincarnation": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Rockfall": {
+    "type": "Spell",
+    "cost": 3
+  },
+  "Rusty Touch": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Serpent Lords Bite": {
+    "type": "Spell",
+    "cost": 2
+  },
+  "Shamanic Curse": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Shooting Star": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Shrink": {
+    "type": "Spell",
+    "cost": 2
+  },
+  "Song of Rain": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Spell Shackles": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Spider Hive": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Summoning Ritual": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Sun Beam": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "The Yeeting": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Touch of the Glacier": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Toxic Fumes": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "Transformation": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Transmission": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Trap Sabotage": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Ultimate Weapon Experiment": {
+    "type": "Spell",
+    "cost": 2
+  },
+  "Venom Infusion": {
+    "type": "Spell",
+    "cost": 0
+  },
+  "Voodoo Curse": {
+    "type": "Spell",
+    "cost": 1
+  },
+  "The Band Kid": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 4
+  },
+  "The Caretaker": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 5
+  },
+  "The Class Clown": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 5
+  },
+  "The Emo": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 6
+  },
+  "The Nerd": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 4
+  },
+  "The School Idol": {
+    "type": "Student",
+    "hp": 40,
+    "atk": 4
+  },
+  "The Average Student": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 5
+  },
+  "The Buffoon": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 5
+  },
+  "The Chuunibyou": {
+    "type": "Student",
+    "hp": 40,
+    "atk": 6
+  },
+  "The Class Pet": {
+    "type": "Student",
+    "hp": 55,
+    "atk": 6
+  },
+  "The Class Rep": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 5
+  },
+  "The Edgelord": {
+    "type": "Student",
+    "hp": 45,
+    "atk": 8
+  },
+  "The Gamer": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 4
+  },
+  "The Cool Kid": {
+    "type": "Student",
+    "hp": 60,
+    "atk": 8
+  },
+  "The Loner": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 8
+  },
+  "The Prodigy": {
+    "type": "Student",
+    "hp": 60,
+    "atk": 5
+  },
+  "The Rowdy": {
+    "type": "Student",
+    "hp": 80,
+    "atk": 8
+  },
+  "The Shy Girl": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 5
+  },
+  "The Teachers Agent": {
+    "type": "Student",
+    "hp": 60,
+    "atk": 5
+  },
+  "The Transfer Student": {
+    "type": "Student",
+    "hp": 50,
+    "atk": 4
+  }
+}
