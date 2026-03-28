@@ -24086,6 +24086,9 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
 
     room._glassWallNegated = true;
     sr._triggerNegated = true; // attack negated — end snare chain
+    // Restore original game continuation so _finalizeSnareChain calls it
+    // (without this, deferredFn is still the queue-advancer no-op)
+    sr.deferredFn = sr._originalDeferredFn || sr.deferredFn;
     console.log(`🪟🪤 Glass Wall: ${attacker?.name || '?'}'s student attack negated!`);
   } else if (effect.effect.type === 'spike-trap-recoil') {
     // Spike Trap: negate student attack + recoil damage equal to ATK on the attacker's student
@@ -24373,11 +24376,15 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
       // Attack negate: reuse Glass Wall's flag — identical behavior
       room._glassWallNegated = true;
       sr._triggerNegated = true; // attack negated — end snare chain
+      // Restore original game continuation so _finalizeSnareChain calls it
+      sr.deferredFn = sr._originalDeferredFn || sr.deferredFn;
       console.log(`🤡📦🪤 Jumpscare: ${owner?.name || '?'}'s student scares away ${trigger.attackerName || 'opponent'}'s attack!`);
     } else if (trigger.type === 'spell-resolving' || trigger.type === 'spell-multi-target') {
       // Spell negate: use standard spell negate mechanism
       room._spellNegatedBySnare = true;
       sr._triggerNegated = true; // spell negated — end snare chain
+      // Restore original game continuation so _finalizeSnareChain calls it
+      sr.deferredFn = sr._originalDeferredFn || sr.deferredFn;
       console.log(`🤡📦🪤 Jumpscare: ${owner?.name || '?'}'s student scares away ${trigger.casterName || 'opponent'}'s "${trigger.spellName || 'spell'}"!`);
     }
   } else if (effect.effect.type === 'induce-fear-negate') {
@@ -46214,6 +46221,8 @@ io.on('connection', (socket) => {
       chosenCard.currentHp = chosenCard.hp || 10;
       delete chosenCard.summoned;
       p2.familiars.splice(insertIdx, 0, chosenCard);
+      // Adjust existing tapped indices for the insertion before tapping the new familiar
+      p2.tappedFamiliars = (p2.tappedFamiliars || []).map(ti => ti >= insertIdx ? ti + 1 : ti);
       // Summoning Ritual: replacement enters TAPPED (it was ritually summoned, not naturally played)
       tapFamiliar(p2, insertIdx);
       trackFamiliarGained(p2);
@@ -46780,6 +46789,8 @@ io.on('connection', (socket) => {
       chosenCard.currentHp = chosenCard.hp || 10;
       delete chosenCard.summoned;
       p2.familiars.splice(insertIdx, 0, chosenCard);
+      // Shift tappedFamiliars indices to account for the insertion
+      p2.tappedFamiliars = (p2.tappedFamiliars || []).map(ti => ti >= insertIdx ? ti + 1 : ti);
       // Do NOT tapFamiliar — Transformation summons untapped
       trackFamiliarGained(p2);
       addToHistoricSnapshot(room, pa.playerId, chosenCard);
