@@ -5430,10 +5430,17 @@ function isActivationConfirmer(room, socketId) {
   if (!pa) return false;
   // Block ALL action confirmations while a snare reaction is in progress
   // (e.g. Book Trap is being decided — caster must not be able to confirm targeting)
-  // Exception: spider/lion passives fire DURING snare reaction chain
+  // Exception: spider/lion passives and deferred snare pickers fire DURING snare reaction chain
   if (room.snareReaction) {
     const et = pa.effectType;
-    if (et !== 'crimson-passive' && et !== 'diamond-passive' && et !== 'surprised-lion-passive' && et !== 'letter-of-lies-pick') return false;
+    if (et !== 'crimson-passive' && et !== 'diamond-passive' && et !== 'surprised-lion-passive'
+        && et !== 'letter-of-lies-pick' && et !== 'icy-grave-pick' && et !== 'rolling-boulder-pick'
+        && et !== 'difficulty-lever-proctor-pick' && et !== 'creepy-clown-pick'
+        && et !== 'hot-potato-pick' && et !== 'fire-all-cannons-sacrifice'
+        && et !== 'potion-of-greed-pick' && et !== 'uncool-malfunction-select'
+        && et !== 'awaiting-discard' && et !== 'friendly-fireball-pick'
+        && et !== 'overcharged-trap-pick' && et !== 'reflection-pick'
+        && et !== 'reverse-prism-pick' && et !== 'spider-avalanche-pick') return false;
   }
   if (pa.gerrymanderPlayerId) return pa.gerrymanderPlayerId === socketId;
   return pa.playerId === socketId;
@@ -21519,15 +21526,6 @@ function trackHandAddition(room, playerId, count, fromDiscard = false) {
  * Queues a Potion of Greed snare trigger for processing in broadcastRoomState.
  */
 function trackDiscardRecovery(room, playerId, count) {
-
-/**
- * Track a multi-target effect for Powder Keg.
- * Call when a non-resolveTargetDamage effect affects 2+ targets (tap, poison, exhaust, etc.).
- */
-function trackPowderKegMultiTarget(room, instigatorId, affectedCount) {
-  if (!instigatorId || affectedCount < 2 || room.phase !== 'exam') return;
-  room._powderKegSource = { instigatorId, targetCount: affectedCount };
-}
   if (!count || count <= 0 || room.phase !== 'exam') return;
   if (!room._potionOfGreedQueue) room._potionOfGreedQueue = [];
   // Merge with existing entry for same player
@@ -21537,6 +21535,15 @@ function trackPowderKegMultiTarget(room, instigatorId, affectedCount) {
   } else {
     room._potionOfGreedQueue.push({ playerId, count });
   }
+}
+
+/**
+ * Track a multi-target effect for Powder Keg.
+ * Call when a non-resolveTargetDamage effect affects 2+ targets (tap, poison, exhaust, etc.).
+ */
+function trackPowderKegMultiTarget(room, instigatorId, affectedCount) {
+  if (!instigatorId || affectedCount < 2 || room.phase !== 'exam') return;
+  room._powderKegSource = { instigatorId, targetCount: affectedCount };
 }
 
 /**

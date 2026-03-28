@@ -10994,7 +10994,21 @@ $btnAttack.addEventListener('click', () => {
       && targetingMode.effectType !== 'crimson-passive'
       && targetingMode.effectType !== 'diamond-passive'
       && targetingMode.effectType !== 'surprised-lion-passive'
-      && targetingMode.effectType !== 'letter-of-lies-pick') return;
+      && targetingMode.effectType !== 'letter-of-lies-pick'
+      && targetingMode.effectType !== 'icy-grave-pick'
+      && targetingMode.effectType !== 'rolling-boulder-pick'
+      && targetingMode.effectType !== 'difficulty-lever-proctor-pick'
+      && targetingMode.effectType !== 'creepy-clown-pick'
+      && targetingMode.effectType !== 'hot-potato-pick'
+      && targetingMode.effectType !== 'fire-all-cannons-sacrifice'
+      && targetingMode.effectType !== 'potion-of-greed-pick'
+      && targetingMode.effectType !== 'uncool-malfunction-select'
+      && targetingMode.effectType !== 'awaiting-discard'
+      && targetingMode.effectType !== 'friendly-fireball-pick'
+      && targetingMode.effectType !== 'overcharged-trap-pick'
+      && targetingMode.effectType !== 'reflection-pick'
+      && targetingMode.effectType !== 'reverse-prism-pick'
+      && targetingMode.effectType !== 'spider-avalanche-pick') return;
   if (targetingMode.effectType === 'damage-targets') {
     if (targetingMode.selected.length !== targetingMode.targetsNeeded) return;
     emit('familiar:attack', { targets: targetingMode.selected });
@@ -13327,7 +13341,21 @@ function updateTargetingUI() {
       && targetingMode.effectType !== 'crimson-passive'
       && targetingMode.effectType !== 'diamond-passive'
       && targetingMode.effectType !== 'surprised-lion-passive'
-      && targetingMode.effectType !== 'letter-of-lies-pick') {
+      && targetingMode.effectType !== 'letter-of-lies-pick'
+      && targetingMode.effectType !== 'icy-grave-pick'
+      && targetingMode.effectType !== 'rolling-boulder-pick'
+      && targetingMode.effectType !== 'difficulty-lever-proctor-pick'
+      && targetingMode.effectType !== 'creepy-clown-pick'
+      && targetingMode.effectType !== 'hot-potato-pick'
+      && targetingMode.effectType !== 'fire-all-cannons-sacrifice'
+      && targetingMode.effectType !== 'potion-of-greed-pick'
+      && targetingMode.effectType !== 'uncool-malfunction-select'
+      && targetingMode.effectType !== 'awaiting-discard'
+      && targetingMode.effectType !== 'friendly-fireball-pick'
+      && targetingMode.effectType !== 'overcharged-trap-pick'
+      && targetingMode.effectType !== 'reflection-pick'
+      && targetingMode.effectType !== 'reverse-prism-pick'
+      && targetingMode.effectType !== 'spider-avalanche-pick') {
     $btnAttack.classList.add('btn-attack-disabled');
     $btnCancelTarget.classList.add('hidden');
   }
@@ -27325,7 +27353,7 @@ export function updateGameState(state, myId) {
   // ── Suspend targeting mode while snare reaction is active ────────────────
   // This prevents the spell caster from selecting targets/opponents while
   // an opponent is deciding whether to use a snare (e.g. Book Trap).
-  const _snareSpecificModes = ['snare-pay-cost', 'snare-select-zone-player', 'snare-select-opponent', 'bluff-pick-targets', 'crimson-passive', 'diamond-passive', 'surprised-lion-passive', 'letter-of-lies-pick', 'overcharged-trap-pick', 'awaiting-opponent', 'reflection-pick', 'reverse-prism-pick', 'spider-avalanche-pick'];
+  const _snareSpecificModes = ['snare-pay-cost', 'snare-select-zone-player', 'snare-select-opponent', 'bluff-pick-targets', 'crimson-passive', 'diamond-passive', 'surprised-lion-passive', 'letter-of-lies-pick', 'overcharged-trap-pick', 'awaiting-opponent', 'reflection-pick', 'reverse-prism-pick', 'spider-avalanche-pick', 'icy-grave-pick', 'rolling-boulder-pick', 'difficulty-lever-proctor-pick', 'creepy-clown-pick', 'hot-potato-pick', 'fire-all-cannons-sacrifice', 'potion-of-greed-pick', 'uncool-malfunction-select', 'awaiting-discard', 'friendly-fireball-pick'];
   if (state.snareReaction && targetingMode && !_snareSpecificModes.includes(targetingMode.effectType)) {
     _suspendedTargetingMode = targetingMode;
     targetingMode = null;
