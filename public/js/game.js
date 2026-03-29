@@ -10371,36 +10371,8 @@ function showPingFlash($el, color) {
   $flash.className = 'ping-flash';
   $flash.style.setProperty('--ping-color', color);
 
-  // Get the element's bounding rect (axis-aligned even if rotated)
-  const rect = $el.getBoundingClientRect();
-  const centerX = rect.left + rect.width / 2;
-  const centerY = rect.top + rect.height / 2;
-
-  // Use the element's actual (un-rotated) dimensions
-  const w = $el.offsetWidth + 12;
-  const h = $el.offsetHeight + 12;
-
-  // Detect rotation from computed transform matrix
-  const cs = getComputedStyle($el);
-  const matrix = cs.transform;
-  let angle = 0;
-  if (matrix && matrix !== 'none') {
-    const match = matrix.match(/^matrix\((.+)\)$/);
-    if (match) {
-      const v = match[1].split(',').map(Number);
-      angle = Math.atan2(v[1], v[0]); // radians
-    }
-  }
-
-  $flash.style.left = (centerX - w / 2) + 'px';
-  $flash.style.top = (centerY - h / 2) + 'px';
-  $flash.style.width = w + 'px';
-  $flash.style.height = h + 'px';
-  $flash.style.borderRadius = cs.borderRadius || '8px';
-  if (angle !== 0) {
-    $flash.style.setProperty('--ping-rotate', `${angle}rad`);
-  }
-  document.body.appendChild($flash);
+  // Append as child of target — inherits all transforms (rotation, hover lift, etc.)
+  $el.appendChild($flash);
   setTimeout(() => $flash.remove(), 1200);
 }
 

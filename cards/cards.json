@@ -781,7 +781,7 @@
   "Undead Scorpion": {
     "type": "Familiar",
     "cost": 2,
-    "hp": 15
+    "hp": 20
   },
   "Undurdle": {
     "type": "Familiar",

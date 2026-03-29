@@ -1326,7 +1326,12 @@ SPELL_REGISTRY.get('Cosmic Balance').setup = ({ room, player, playerId, heldPaym
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: { origin: '*' },
+  // Generous timeouts so background-tab throttling doesn't cause disconnects.
+  // Browsers aggressively throttle timers & network in inactive tabs,
+  // which can delay Socket.IO pong responses far beyond default 20s.
+  pingInterval: 30000,  // 30s between pings (default: 25s)
+  pingTimeout: 120000,  // 2 min to respond before disconnect (default: 20s)
 });
 
 const PORT = process.env.PORT || 3000;
@@ -1431,7 +1436,7 @@ function shuffle(arr) {
 }
 
 // Debug: inject these card names into all players' hands at game start (empty array to disable)
-const DEBUG_INJECT_CARDS = ['Undead Scorpion'];
+const DEBUG_INJECT_CARDS = [];
 const DEBUG_FORCE_STUDENT = null; // Set to null to disable
 
 /** Inject debug cards into all players' hands (used by both game:start and game:restart) */
@@ -1773,7 +1778,7 @@ function findPlayerByToken(room, token) {
 }
 
 /** How long to wait for a reconnect before treating disconnect as permanent leave */
-const RECONNECT_GRACE_MS = 30_000;
+const RECONNECT_GRACE_MS = 120_000; // 2 minutes grace for reconnection after disconnect
 
 /**
  * Swap a player's socket id everywhere it's referenced in the room.
@@ -6964,6 +6969,8 @@ function countUntappedTargets(player, room = null) {
   if (player.chosenStudent && !player.tappedStudent && !player.studentDead) count++;
   if (player.familiars) {
     for (let i = 0; i < player.familiars.length; i++) {
+      const f = player.familiars[i];
+      if (!f || f.currentHp <= 0) continue; // skip null slots and dead familiars
       if (!player.tappedFamiliars.includes(i)) count++;
     }
   }
@@ -14376,7 +14383,7 @@ function advanceExamTurn(room) {
       }
       // ── Own familiar bonus ──────────────────────────────────────────
       else if (famIdx >= 0 && famIdx < (currentPlayer.familiars || []).length
-        && (currentPlayer.familiars[famIdx].currentHp || 0) > 0) {
+        && currentPlayer.familiars[famIdx] && (currentPlayer.familiars[famIdx].currentHp || 0) > 0) {
 
         // Verify the familiar at this index is still the SAME one that acted
         // (it may have been bounced/removed and the index now points to a different familiar)
@@ -14398,7 +14405,7 @@ function advanceExamTurn(room) {
         if (cpuOwnResult && cpuOwnResult !== 'auto' && cpuOwnResult !== 'no-tap') {
           // Mark as bonus action in pendingActivation for client display
           room.pendingActivation.averageStudentBonus = true;
-          console.log(`📓 Average Student bonus! ${currentPlayer.name}'s ${currentPlayer.familiars[famIdx].name} acts again (mandatory)`);
+          console.log(`📓 Average Student bonus! ${currentPlayer.name}'s ${currentPlayer.familiars[famIdx]?.name || 'familiar'} acts again (mandatory)`);
           broadcastRoomState(room);
           return true;
         }
@@ -14410,7 +14417,7 @@ function advanceExamTurn(room) {
           room._sandyBlobExclude = { playerId: room.currentTurnId, familiarIndex: famIdx };
           setFamiliarTurnTracking(room, room.currentTurnId, famIdx);
         }
-        if (!cpuOwnResult) console.log(`📓 Average Student bonus — ${currentPlayer.familiars[famIdx].name} has no valid action, skipping`);
+        if (!cpuOwnResult) console.log(`📓 Average Student bonus — ${currentPlayer.familiars[famIdx]?.name || 'familiar'} has no valid action, skipping`);
         } // end else (familiar reference matches)
       }
     }
@@ -18139,6 +18146,7 @@ function getUntappedStudentSources(player, forSpellCasting = false) {
   // Summoned students are never blade-restricted for spell casting
   for (let i = 0; i < (player.familiars || []).length; i++) {
     const f = player.familiars[i];
+    if (!f) continue;
     if (f.summoned && f.currentHp > 0 && !player.tappedFamiliars.includes(i)) {
       sources.push({ source: 'summoned', familiarIndex: i, name: f.name });
     }
@@ -24200,7 +24208,7 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
           animation: 'golden-darts',
         }];
 
-        console.log(`🎯🪤 ${snare.name} kills ${famOwner.name}'s newly summoned ${famOwner.familiars[fi].name}!`);
+        console.log(`🎯🪤 ${snare.name} kills ${famOwner.name}'s newly summoned ${famOwner.familiars[fi]?.name || 'familiar'}!`);
 
         // Replace deferredFn: the summoned familiar is dead, just advance the turn
         sr.deferredFn = () => {
@@ -27628,7 +27636,7 @@ function setupCoolCheesePrompt(room, playerId, player, afterFn) {
     if (t.type === 'student') {
       player.chosenStudent.taunting = (player.chosenStudent.taunting || 0) + 1;
       console.log(`🛡️🧀 Cool Cheese: ${player.name}'s student gains taunting (${player.chosenStudent.taunting} stacks)`);
-    } else {
+    } else if (player.familiars[t.familiarIndex]) {
       player.familiars[t.familiarIndex].taunting = (player.familiars[t.familiarIndex].taunting || 0) + 1;
       console.log(`🛡️🧀 Cool Cheese: ${player.name}'s ${t.name} gains taunting (${player.familiars[t.familiarIndex].taunting} stacks)`);
     }
@@ -30371,7 +30379,7 @@ io.on('connection', (socket) => {
 
     const targetName = targetType === 'student'
       ? player.chosenStudent.name
-      : player.familiars[targetFamiliarIndex].name;
+      : (player.familiars[targetFamiliarIndex]?.name || 'familiar');
     console.log(`🗡️ ${player.name}'s Harpy Warrior #${phg.familiarIndex} now guards ${targetName} (${targetType})`);
 
     // Advance to this player's next Harpy
@@ -36173,7 +36181,7 @@ io.on('connection', (socket) => {
             // Bounce Trap / Capture Net: familiar still took a turn even if fizzled
             setFamiliarTurnTracking(room, socket.id, familiarIndex);
             if (!activateResult) {
-              console.log(`🔄 ${player.name} tapped familiar #${familiarIndex} (${player.familiars[familiarIndex].name})`);
+              console.log(`🔄 ${player.name} tapped familiar #${familiarIndex} (${player.familiars[familiarIndex]?.name || 'familiar'})`);
             }
           }
           room.activeSpell = null;
@@ -36198,7 +36206,7 @@ io.on('connection', (socket) => {
         // Bounce Trap / Capture Net: familiar still took a turn even if effect fizzled
         setFamiliarTurnTracking(room, socket.id, familiarIndex);
         if (!activateResult) {
-          console.log(`🔄 ${player.name} tapped familiar #${familiarIndex} (${player.familiars[familiarIndex].name})`);
+          console.log(`🔄 ${player.name} tapped familiar #${familiarIndex} (${player.familiars[familiarIndex]?.name || 'familiar'})`);
         }
       }
     } else if (target === 'commandFamiliar') {
@@ -39237,7 +39245,7 @@ io.on('connection', (socket) => {
 
         if (pa.chainOnKill && deaths.some(d => d.type === 'familiar')) {
           if (srcOwner && adjustedSourceIndex >= 0 && adjustedSourceIndex < srcOwner.familiars.length
-              && srcOwner.familiars[adjustedSourceIndex].currentHp > 0) {
+              && srcOwner.familiars[adjustedSourceIndex] && srcOwner.familiars[adjustedSourceIndex].currentHp > 0) {
             let otherFamCount = 0;
             for (const [pid, p] of room.players) {
               if (p.left) continue;
@@ -39277,7 +39285,7 @@ io.on('connection', (socket) => {
 
         if (pa.selfHealAfter && pa.selfHealAfter > 0 && pa.sourceType === 'familiar') {
           if (srcOwner && adjustedSourceIndex >= 0 && adjustedSourceIndex < srcOwner.familiars.length
-              && srcOwner.familiars[adjustedSourceIndex].currentHp > 0) {
+              && srcOwner.familiars[adjustedSourceIndex] && srcOwner.familiars[adjustedSourceIndex].currentHp > 0) {
             // AoE: heal per target hit (e.g. Hungry Shark 8 HP × targets)
             const totalHeal = pa.selfHealAfter * targets.length;
             const healTargets = [{
@@ -39297,7 +39305,7 @@ io.on('connection', (socket) => {
 
         if (pa.selfBounceAfter && pa.sourceType === 'familiar') {
           if (srcOwner && adjustedSourceIndex >= 0 && adjustedSourceIndex < srcOwner.familiars.length
-              && srcOwner.familiars[adjustedSourceIndex].currentHp > 0) {
+              && srcOwner.familiars[adjustedSourceIndex] && srcOwner.familiars[adjustedSourceIndex].currentHp > 0) {
             console.log(`🚀🦋 AoE ${pa.familiarName} bounces itself back to hand`);
             bounceFamiliar(room, srcOwnerId, adjustedSourceIndex, null); // self-bounce: no Groundskeeper credit
           }
@@ -39310,7 +39318,7 @@ io.on('connection', (socket) => {
             room.bombExplosionEvents.push({ playerId: t.playerId, type: t.type, familiarIndex: t.familiarIndex });
           }
           if (srcOwner && adjustedSourceIndex >= 0 && adjustedSourceIndex < srcOwner.familiars.length
-              && srcOwner.familiars[adjustedSourceIndex].currentHp > 0) {
+              && srcOwner.familiars[adjustedSourceIndex] && srcOwner.familiars[adjustedSourceIndex].currentHp > 0) {
             console.log(`🚀💣 AoE ${pa.familiarName} self-destructs after attack!`);
             srcOwner.familiars[adjustedSourceIndex].currentHp = 0;
             processFamiliarDeath(room, srcOwnerId, adjustedSourceIndex, 'self-destruct');
@@ -41025,7 +41033,7 @@ io.on('connection', (socket) => {
         }
 
         if (adjustedSourceIndex >= 0 && adjustedSourceIndex < player.familiars.length
-            && player.familiars[adjustedSourceIndex].currentHp > 0) {
+            && player.familiars[adjustedSourceIndex] && player.familiars[adjustedSourceIndex].currentHp > 0) {
           console.log(`💣 ${pa.familiarName} self-destructs after attack!`);
           player.familiars[adjustedSourceIndex].currentHp = 0;
           processFamiliarDeath(room, socket.id, adjustedSourceIndex, 'self-destruct');
@@ -41870,6 +41878,10 @@ io.on('connection', (socket) => {
     if (!targetOwner || targetOwner.left) return;
     if (typeof familiarIndex !== 'number' || familiarIndex < 0 || familiarIndex >= (targetOwner.familiars || []).length) {
       socket.emit('error:msg', 'Invalid familiar');
+      return;
+    }
+    if (!targetOwner.familiars[familiarIndex]) {
+      socket.emit('error:msg', 'Familiar slot is empty');
       return;
     }
     if (targetOwner.familiars[familiarIndex].currentHp <= 0) {
@@ -47026,7 +47038,7 @@ io.on('connection', (socket) => {
         }
       } else if (t.type === 'familiar') {
         owner.tappedFamiliars = owner.tappedFamiliars.filter(ti => ti !== t.familiarIndex);
-        console.log(`❄️⚡ Frost Breaker untaps ${owner.name}'s ${owner.familiars[t.familiarIndex].name}`);
+        console.log(`❄️⚡ Frost Breaker untaps ${owner.name}'s ${owner.familiars[t.familiarIndex]?.name || 'familiar'}`);
       }
     }
 
@@ -55400,7 +55412,7 @@ io.on('connection', (socket) => {
     if (lowestTargets.length === 1) {
       // Unique lowest — resolve immediately
       const t = lowestTargets[0];
-      console.log(`🦅🌙 ${player.name}'s Moonlight Hawk strikes ${target.name}'s ${t.type === 'student' ? 'student' : target.familiars[t.familiarIndex].name} (lowest HP: ${minHp}) for ${hawkDamage} damage`);
+      console.log(`🦅🌙 ${player.name}'s Moonlight Hawk strikes ${target.name}'s ${t.type === 'student' ? 'student' : (target.familiars[t.familiarIndex]?.name || 'familiar')} (lowest HP: ${minHp}) for ${hawkDamage} damage`);
 
       room.pendingActivation = null;
 
@@ -56115,11 +56127,58 @@ io.on('connection', (socket) => {
       player.disconnected = true;
       console.log(`⏳ ${player.name} disconnected, waiting ${RECONNECT_GRACE_MS / 1000}s for reconnect...`);
 
-      // DON'T mark ready during student-pick — they may reconnect and still pick.
-      // DON'T remove from prepTurnOrder or advance turn during preparation —
-      // they may reconnect and still need their turn.
-      // DON'T advance turn during exam — they may reconnect and still take it.
-      // The grace period expiry (finalizeDisconnect) handles the permanent case.
+      // Clean up any pending game state owned by this player so the game doesn't stall.
+      // The player can still reconnect and take future turns, but we won't hold up
+      // the current action for them.
+      if (room.phase === 'exam' && room.examSubPhase === 'turns') {
+        // Clean up pendingActivation if this player owns it
+        if (room.pendingActivation && room.pendingActivation.playerId === player.id) {
+          // Cancel the PA — discard held cards if any
+          const pa = room.pendingActivation;
+          if (pa.heldCard) player.discardPile.push(pa.heldCard);
+          if (pa.heldPayment && pa.heldPayment.length > 0) {
+            for (const c of pa.heldPayment) player.discardPile.push(c);
+          }
+          room.pendingActivation = null;
+          room.activeSpell = null;
+          room.activeSpellPlayer = null;
+          console.log(`⏳ Cleared pendingActivation for disconnected ${player.name}`);
+        }
+
+        // If it was their turn, advance to the next player
+        if (room.currentTurnId === player.id) {
+          clearTurnTimer(room);
+          console.log(`⏳ Advancing turn past disconnected ${player.name}`);
+          const transitioning = advanceExamTurn(room);
+          if (!transitioning) broadcastRoomState(room);
+        }
+      }
+
+      // Handle snare-prep: auto-ready so others aren't stuck waiting
+      if (room.phase === 'exam' && room.examSubPhase === 'snare-prep' && !player.snareReady) {
+        player.snareReady = true;
+        console.log(`⏳ Auto-readied snare prep for disconnected ${player.name}`);
+        if (checkSnarePhaseComplete(room)) {
+          if (room.examSubPhase === 'turns') advanceExamTurnIfNeeded(room);
+        }
+      }
+
+      // Handle student-pick: auto-ready so others aren't stuck waiting
+      if (room.phase === 'student-pick' && !player.ready) {
+        player.ready = true;
+        console.log(`⏳ Auto-readied student pick for disconnected ${player.name}`);
+        const eligible = getNonLeftPlayers(room);
+        if (eligible.every(p => p.ready)) {
+          triggerPreparation(room);
+          return; // triggerPreparation broadcasts
+        }
+      }
+
+      // Handle preparation: advance turn if it was their turn
+      if (room.phase === 'preparation' && room.currentTurnId === player.id) {
+        console.log(`⏳ Advancing prep turn past disconnected ${player.name}`);
+        advanceTurnFromLeft(room);
+      }
 
       // Start grace period timer
       const token = player.sessionToken;
