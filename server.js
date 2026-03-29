@@ -9416,15 +9416,33 @@ function checkPriceTagAllDeclined(room) {
 
 /**
  * Check if a player can reactively use Golden Ankh.
- * Requires: Ankh in hand, item slot available this round.
- * (Cost is always 0 — no payment needed.)
+ * Requires: Ankh in hand, item slot available this round, can afford effective cost.
+ * Cost includes Sinister Idol, Royal Corgi, Royalty stacks, minus Mine Cart reduction.
  */
-function getAnkhCandidate(player) {
+function getAnkhCandidate(player, room) {
   if (!player || player.left || player.won) return null;
   if (player.itemUsedThisRound) return null;
   const idx = (player.hand || []).findIndex(c => c.name === 'Golden Ankh');
   if (idx === -1) return null;
-  return { handIndex: idx, card: player.hand[idx], cost: 0 };
+
+  // Calculate effective cost with all modifiers
+  let cost = player.hand[idx].cost || 0;
+  if (room) {
+    const royalty = (player.royaltyStacks || 0) * 2;
+    if (royalty > 0) cost += royalty;
+    const corgi = getRoyalCorgiPenalty(room, player.id);
+    if (corgi > 0) cost += corgi;
+    const idol = getSinisterIdolPenalty(room, player.id);
+    if (idol > 0) cost += idol;
+    const mineCart = getMineCartReduction(player);
+    if (mineCart > 0) cost = Math.max(0, cost - mineCart);
+  }
+
+  // Check if player can afford the cost (needs enough OTHER cards in hand as payment)
+  const otherCards = player.hand.length - 1; // exclude the Ankh itself
+  if (otherCards < cost) return null;
+
+  return { handIndex: idx, card: player.hand[idx], cost };
 }
 
 /**
@@ -9437,7 +9455,7 @@ function processAnkhQueue(room, candidateIds, afterFn) {
     const player = room.players.get(pid);
     if (!player) continue;
     if (!player.studentDead) continue; // Elixir may have already saved them
-    const candidate = getAnkhCandidate(player);
+    const candidate = getAnkhCandidate(player, room);
     if (!candidate) continue;
     queue.push({ playerId: pid, ...candidate });
   }
@@ -9453,7 +9471,7 @@ function processNextAnkh(room, queue, index, afterFn) {
   const next = () => processNextAnkh(room, queue, index + 1, afterFn);
 
   if (!player || player.left || !player.studentDead) { next(); return; }
-  if (!getAnkhCandidate(player)) { next(); return; }
+  if (!getAnkhCandidate(player, room)) { next(); return; }
 
   room.pendingAnkh = {
     playerId: entry.playerId,
@@ -9476,6 +9494,7 @@ function processNextAnkh(room, queue, index, afterFn) {
 /**
  * Resolve Golden Ankh: revive student at 1 HP, mark item used.
  * The student ACTUALLY died — death count is NOT decremented, death-trigger effects will fire.
+ * If cost > 0 (Sinister Idol etc.), auto-discard payment cards from hand.
  */
 function resolveAnkh(room, playerId) {
   const pa = room.pendingAnkh;
@@ -9486,7 +9505,11 @@ function resolveAnkh(room, playerId) {
   clearTimeout(pa.timer);
   room.pendingAnkh = null;
 
-  // Find and remove the Ankh card (cost is 0, no payment cards)
+  // Calculate effective cost
+  const candidate = getAnkhCandidate(player, room);
+  const cost = candidate ? candidate.cost : 0;
+
+  // Find and remove the Ankh card
   const ankhIdx = player.hand.findIndex(c => c.name === 'Golden Ankh');
   if (ankhIdx !== -1) {
     const ankhCard = player.hand.splice(ankhIdx, 1)[0];
@@ -9495,6 +9518,13 @@ function resolveAnkh(room, playerId) {
     } else {
       player.discardPile.push(ankhCard);
     }
+  }
+
+  // Auto-discard payment cards if cost > 0
+  if (cost > 0) {
+    const paymentCards = player.hand.splice(0, Math.min(cost, player.hand.length));
+    for (const c of paymentCards) player.discardPile.push(c);
+    console.log(`☥ Golden Ankh cost: ${cost} (auto-discarded ${paymentCards.length} card(s))`);
   }
 
   // Revive student at 1 HP — death was real, do NOT decrement roundDeathCount
@@ -23902,7 +23932,13 @@ function _finalizeSnareChain(room) {
       deferred = room.snareReaction.deferredFn;
     }
   } else {
-    deferred = room.snareReaction._originalDeferredFn || room.snareReaction.deferredFn;
+    if (room.snareReaction.deferredFn._isQueueAdvancer) {
+      // Effect didn't replace deferredFn — use original trigger continuation
+      deferred = room.snareReaction._originalDeferredFn || room.snareReaction.deferredFn;
+    } else {
+      // Effect replaced deferredFn with custom handler (e.g. Icy Grave picker) — use it
+      deferred = room.snareReaction.deferredFn;
+    }
   }
 
   // Friendly Fireball: restore saved animation events if no redirect happened
@@ -28402,6 +28438,21 @@ function broadcastRoomState(room) {
           }));
         })(),
         pendingHarpyGuard: player.pendingHarpyGuard || null,
+        lockedProctors: (() => {
+          if (room.phase !== 'exam' || !room.proctors) return [];
+          const locked = [];
+          const trainer = room.proctors.find(p => p.name === 'The Familiar Trainer');
+          if (trainer && !isProctorDisabled(room, trainer.name) && !(room.proctorApprovals[trainer.name] || []).includes(sid)) {
+            locked.push('The Familiar Trainer');
+          }
+          const witch = room.proctors.find(p => p.name === 'The Witch Teacher');
+          if (witch && !isProctorDisabled(room, witch.name)
+              && (player.witchTeacherFailed || (room.examRound || 0) > 2)
+              && !(room.proctorApprovals[witch.name] || []).includes(sid)) {
+            locked.push('The Witch Teacher');
+          }
+          return locked;
+        })(),
       },
       others,
       playerCount: room.players.size,
@@ -31280,8 +31331,8 @@ io.on('connection', (socket) => {
     const player = room.players.get(socket.id);
     if (!player || player.left) return;
 
-    // Re-validate eligibility
-    if (!getAnkhCandidate(player) || !player.studentDead) {
+    // Re-validate eligibility (cost may have changed since prompt)
+    if (!getAnkhCandidate(player, room) || !player.studentDead) {
       clearTimeout(room.pendingAnkh.timer);
       const continueFn = room.pendingAnkh.afterFn;
       room.pendingAnkh = null;
@@ -50879,6 +50930,16 @@ io.on('connection', (socket) => {
       }
     }
 
+    // Discard spell card + payment
+    if (pa.heldCard) caster.discardPile.push(pa.heldCard);
+    if (pa.heldPayment && pa.heldPayment.length > 0) discardFromHand(room, pa.playerId, caster, pa.heldPayment);
+    caster.spellCastThisRound = true;
+    if (hasAngryCheese(caster)) queueAngryCheese(room, pa.playerId);
+    if (hasCuteCheese(caster)) queueCuteCheese(room, pa.playerId);
+    if (hasHolyCheese(caster)) queueHolyCheese(room, pa.playerId);
+    room.activeSpell = pa.heldCard || { name: 'Body Swap', type: 'Spell' };
+    room.activeSpellPlayer = caster.name;
+
     const _continueBodySwap = () => {
     if (room._spellNegatedBySnare || room._antiMagicZoneProtectedId === targetPlayerId) {
       delete room._spellNegatedBySnare; delete room._antiMagicZoneProtectedId;
@@ -50934,6 +50995,21 @@ io.on('connection', (socket) => {
 
     console.log(`🌌 ${caster.name}'s Aurora Borealis copies "${spell.name}" from ${owner.name}'s discard (free)`);
     trackCardPlayed(caster, spell);
+
+    // Commit Aurora Borealis itself (discard card + payment, tap, cheese)
+    if (pa.heldCard) caster.discardPile.push(pa.heldCard);
+    if (pa.heldPayment && pa.heldPayment.length > 0) discardFromHand(room, pa.playerId, caster, pa.heldPayment);
+    if (!caster.studentDead) {
+      if (pa.spellCaster && pa.spellCaster.type === 'familiar' && pa.spellCaster.familiarIndex >= 0) {
+        tapFamiliar(caster, pa.spellCaster.familiarIndex);
+      } else {
+        caster.tappedStudent = true;
+      }
+    }
+    caster.spellCastThisRound = true;
+    if (hasAngryCheese(caster)) queueAngryCheese(room, pa.playerId);
+    if (hasCuteCheese(caster)) queueCuteCheese(room, pa.playerId);
+    if (hasHolyCheese(caster)) queueHolyCheese(room, pa.playerId);
 
     room.auroraBorealisEvent = true;
 
@@ -51007,6 +51083,21 @@ io.on('connection', (socket) => {
     }
 
     console.log(`🌀 Chaos Magic: ${caster.name} targets ${opponent.name} — ${eligibleSpells.length} spell(s) available`);
+
+    // Commit Chaos Magic itself (discard card + payment, tap, cheese)
+    if (pa.heldCard) caster.discardPile.push(pa.heldCard);
+    if (pa.heldPayment && pa.heldPayment.length > 0) discardFromHand(room, pa.playerId, caster, pa.heldPayment);
+    if (!caster.studentDead) {
+      if (pa.spellCaster && pa.spellCaster.type === 'familiar' && pa.spellCaster.familiarIndex >= 0) {
+        tapFamiliar(caster, pa.spellCaster.familiarIndex);
+      } else {
+        caster.tappedStudent = true;
+      }
+    }
+    caster.spellCastThisRound = true;
+    if (hasAngryCheese(caster)) queueAngryCheese(room, pa.playerId);
+    if (hasCuteCheese(caster)) queueCuteCheese(room, pa.playerId);
+    if (hasHolyCheese(caster)) queueHolyCheese(room, pa.playerId);
 
     room.pendingActivation = {
       ...pa,
@@ -51102,7 +51193,24 @@ io.on('connection', (socket) => {
     const target = room.players.get(targetPlayerId);
     if (!target || target.left) { socket.emit('error:msg', 'Target gone'); return; }
 
-    // Compute current effective hand sizes (Balance card already discarded, payment already paid)
+    // Commit Cosmic Balance (discard card + payment, tap, cheese)
+    if (pa.heldCard) caster.discardPile.push(pa.heldCard);
+    if (pa.heldPayment && pa.heldPayment.length > 0) discardFromHand(room, pa.playerId, caster, pa.heldPayment);
+    if (!caster.studentDead) {
+      if (pa.spellCaster && pa.spellCaster.type === 'familiar' && pa.spellCaster.familiarIndex >= 0) {
+        tapFamiliar(caster, pa.spellCaster.familiarIndex);
+      } else {
+        caster.tappedStudent = true;
+      }
+    }
+    caster.spellCastThisRound = true;
+    if (hasAngryCheese(caster)) queueAngryCheese(room, pa.playerId);
+    if (hasCuteCheese(caster)) queueCuteCheese(room, pa.playerId);
+    if (hasHolyCheese(caster)) queueHolyCheese(room, pa.playerId);
+    room.activeSpell = pa.heldCard || { name: 'Cosmic Balance', type: 'Spell' };
+    room.activeSpellPlayer = caster.name;
+
+    // Compute current effective hand sizes (Balance card + payment now properly in discard)
     const casterSize = caster.hand.length;
     const targetSize = target.hand.length;
     const diff = Math.abs(casterSize - targetSize);
@@ -51233,6 +51341,12 @@ io.on('connection', (socket) => {
         caster.tappedStudent = true;
       }
     }
+    // Discard payment + cheese (spell card itself goes to equips, not discard)
+    if (pa.heldPayment && pa.heldPayment.length > 0) discardFromHand(room, pa.playerId, caster, pa.heldPayment);
+    caster.spellCastThisRound = true;
+    if (hasAngryCheese(caster)) queueAngryCheese(room, pa.playerId);
+    if (hasCuteCheese(caster)) queueCuteCheese(room, pa.playerId);
+    if (hasHolyCheese(caster)) queueHolyCheese(room, pa.playerId);
 
     const _continueButterflyForm = () => {
     if (room._spellNegatedBySnare || room._antiMagicZoneProtectedId === targetPlayerId) {
@@ -51312,8 +51426,15 @@ io.on('connection', (socket) => {
         caster.tappedStudent = true;
       }
     }
-
-    // Fire animation event
+    // Discard spell card + payment, cheese
+    if (pa.heldCard) caster.discardPile.push(pa.heldCard);
+    if (pa.heldPayment && pa.heldPayment.length > 0) discardFromHand(room, pa.playerId, caster, pa.heldPayment);
+    caster.spellCastThisRound = true;
+    if (hasAngryCheese(caster)) queueAngryCheese(room, pa.playerId);
+    if (hasCuteCheese(caster)) queueCuteCheese(room, pa.playerId);
+    if (hasHolyCheese(caster)) queueHolyCheese(room, pa.playerId);
+    room.activeSpell = pa.heldCard || { name: 'Butterfly Cloud', type: 'Spell' };
+    room.activeSpellPlayer = caster.name;
     room.butterflyCloudEvent = {
       targetPlayerId,
       eventId: `${Date.now()}-${Math.random()}`,
@@ -51385,9 +51506,8 @@ io.on('connection', (socket) => {
       playerIdB: selB.playerId, equipIndexB: selB.equipIndex, equipNameB: equipB.name,
     });
 
-    room.pendingActivation = null;
-    room.activeSpell = pa.heldCard || null;
-    room.activeSpellPlayer = pa.heldCard ? caster.name : null;
+    // Commit spell (discard card + payment, tap caster, trigger cheese equips)
+    commitSpellCast(room, pa);
 
     const transitioning = advanceExamTurn(room);
     if (!transitioning) broadcastRoomState(room);

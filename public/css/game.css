@@ -412,6 +412,34 @@ html, body {
   z-index: 3;
 }
 
+.proctor-card.proctor-my-pending {
+  border-color: rgba(255,140,30,1);
+  border-width: 4px;
+  transform: scale(1.03);
+  box-shadow:
+    0 0 18px rgba(255,140,30,0.8),
+    0 0 40px rgba(255,140,30,0.4),
+    0 0 70px rgba(255,140,30,0.2),
+    inset 0 0 16px rgba(255,140,30,0.15);
+  animation: proctorPendingGlow 2s ease-in-out infinite;
+}
+@keyframes proctorPendingGlow {
+  0%, 100% {
+    box-shadow:
+      0 0 16px rgba(255,140,30,0.7),
+      0 0 36px rgba(255,140,30,0.3),
+      0 0 60px rgba(255,140,30,0.15),
+      inset 0 0 14px rgba(255,140,30,0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 28px rgba(255,140,30,1),
+      0 0 56px rgba(255,140,30,0.5),
+      0 0 90px rgba(255,140,30,0.25),
+      inset 0 0 22px rgba(255,140,30,0.2);
+  }
+}
+
 .proctor-card.proctor-distracted {
   filter: grayscale(0.7) brightness(0.55);
   opacity: 0.7;
@@ -431,6 +459,10 @@ html, body {
   filter: grayscale(1) brightness(0.35);
   opacity: 0.55;
   pointer-events: none;
+}
+.proctor-card.proctor-locked {
+  filter: grayscale(1) brightness(0.35);
+  opacity: 0.55;
 }
 .proctor-card.proctor-disabled.proctor-targetable {
   pointer-events: auto; /* but won't have this class since we skip disabled in renderProctors */
@@ -1775,22 +1807,22 @@ html, body {
 }
 
 /* Clone identity badge */
-.clone-badge {
+.clone-name-label {
   position: absolute;
-  bottom: -6px; left: 50%;
-  transform: translateX(-50%);
-  background: linear-gradient(135deg, #1a3a2a, #0d2018);
-  color: #2ecc71;
-  font-size: 10px;
-  font-weight: bold;
-  padding: 1px 5px;
-  border-radius: 8px;
-  border: 1px solid rgba(46,204,113,0.5);
+  top: 0; left: 0; right: 0;
+  background: linear-gradient(180deg, rgba(10,30,20,0.92) 0%, rgba(10,30,20,0.75) 70%, transparent 100%);
+  color: #5fffaa;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-align: center;
+  padding: 4px 4px 10px;
+  border-radius: 6px 6px 0 0;
   pointer-events: none;
-  z-index: 2;
+  z-index: 3;
   white-space: nowrap;
-  max-width: 90px;
   overflow: hidden;
+  text-shadow: 0 0 8px rgba(46,204,113,0.8), 0 1px 3px rgba(0,0,0,0.9);
   text-overflow: ellipsis;
 }
 
@@ -2169,30 +2201,21 @@ html, body {
   position: absolute; top: -3px; left: 0; right: 0;
   height: 6px;
   border-radius: 3px;
-  background: linear-gradient(90deg, transparent 5%, var(--gold) 30%, #ffe88a 50%, var(--gold) 70%, transparent 95%);
+  background:
+    linear-gradient(90deg, transparent, rgba(255,240,180,0.6) 40%, rgba(255,255,255,0.8) 50%, rgba(255,240,180,0.6) 60%, transparent),
+    linear-gradient(90deg, transparent 5%, var(--gold) 30%, #ffe88a 50%, var(--gold) 70%, transparent 95%);
+  background-size: 200% 100%, 100% 100%;
   box-shadow:
     0 0 20px rgba(212,168,67,0.9),
     0 0 48px rgba(212,168,67,0.5),
     0 -4px 24px rgba(212,168,67,0.4);
-  animation: selfTurnGlow 1.8s ease-in-out infinite;
+  animation: selfTurnShimmer 3s ease-in-out infinite;
   z-index: 20;
 }
 
-@keyframes selfTurnGlow {
-  0%, 100% {
-    box-shadow:
-      0 0 16px rgba(212,168,67,0.7),
-      0 0 36px rgba(212,168,67,0.35),
-      0 -4px 20px rgba(212,168,67,0.3);
-    opacity: 0.85;
-  }
-  50% {
-    box-shadow:
-      0 0 28px rgba(212,168,67,1),
-      0 0 60px rgba(212,168,67,0.6),
-      0 -6px 36px rgba(212,168,67,0.5);
-    opacity: 1;
-  }
+@keyframes selfTurnShimmer {
+  0%   { background-position: -100% center, 0 0; }
+  100% { background-position: 200% center, 0 0; }
 }
 
 /* ─── Self turn-owner indicator (persistent "your turn" marker) ──────────── */
@@ -4038,7 +4061,31 @@ body.hole-in-sky-active .targeting-overlay {
 }
 
 .card-zoom.zoom-locked img {
-  box-shadow: 0 12px 48px rgba(0,0,0,0.7), 0 0 0 3px var(--gold);
+  box-shadow:
+    0 12px 48px rgba(0,0,0,0.7),
+    0 0 0 5px var(--my-player-color, var(--gold)),
+    0 0 18px var(--my-player-color, var(--gold)),
+    0 0 36px var(--my-player-color, var(--gold));
+  animation: zoomLockedShine 2.5s ease-in-out infinite;
+}
+
+@keyframes zoomLockedShine {
+  0%, 100% {
+    filter: brightness(1);
+    box-shadow:
+      0 12px 48px rgba(0,0,0,0.7),
+      0 0 0 5px var(--my-player-color, var(--gold)),
+      0 0 16px var(--my-player-color, var(--gold)),
+      0 0 32px var(--my-player-color, var(--gold));
+  }
+  50% {
+    filter: brightness(1.02);
+    box-shadow:
+      0 12px 48px rgba(0,0,0,0.7),
+      0 0 0 6px var(--my-player-color, var(--gold)),
+      0 0 24px var(--my-player-color, var(--gold)),
+      0 0 48px var(--my-player-color, var(--gold));
+  }
 }
 
 /* Zoomable elements get a pointer hint */
@@ -12393,12 +12440,6 @@ body.shooting-star-active #revive-picker {
 .status-badge.transfer-marked-badge {
   background: rgba(230, 126, 34, 0.85);
   border: 1px solid rgba(230,126,34,0.6);
-}
-.status-badge.clone-badge {
-  background: rgba(52, 73, 94, 0.85);
-  color: #aef;
-  border: 1px solid rgba(52,73,94,0.6);
-  font-size: 0.5rem;
 }
 .status-badge.paid-cost-badge {
   background: rgba(44, 62, 80, 0.85);

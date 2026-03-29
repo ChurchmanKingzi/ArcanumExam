@@ -10118,7 +10118,8 @@ document.addEventListener('click', (e) => {
   if (el && !el.hasAttribute('data-no-zoom-lock') && !el.hasAttribute('data-interactive')) {
     const src = el.dataset.zoomSrc;
     if (zoomLocked && zoomLockedSrc === src) {
-      // Clicking same locked card — keep locked
+      // Clicking same locked card — unpin
+      unlockZoom();
       return;
     }
     // Lock to this card
@@ -10431,6 +10432,30 @@ function processPingEvents(state) {
   }
 }
 
+
+/**
+ * Dynamically shrink font-size and letter-spacing so a .clone-name-label
+ * always fits within its parent card width.
+ */
+function fitCloneLabel($label) {
+  // Defer to next frame so the element is in the DOM and measurable
+  requestAnimationFrame(() => {
+    const parent = $label.parentElement;
+    if (!parent) return;
+    const maxW = parent.offsetWidth - 8; // 4px padding each side
+    let fontSize = 22;
+    let spacing = 0.5;
+    $label.style.fontSize = fontSize + 'px';
+    $label.style.letterSpacing = spacing + 'px';
+    // Shrink until it fits
+    while ($label.scrollWidth > maxW && fontSize > 11) {
+      fontSize -= 1;
+      spacing = Math.max(-0.5, spacing - 0.15);
+      $label.style.fontSize = fontSize + 'px';
+      $label.style.letterSpacing = spacing + 'px';
+    }
+  });
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  HELPERS
@@ -14341,8 +14366,14 @@ function renderOpponents(state) {
         addOppFamBadge('bomb-counter-badge' + (card.bombCounters >= 2 ? ' bomb-counter-ready' : ''), '💣' + card.bombCounters, `Bomb Golems: ${card.bombCounters} counter(s)`, 'Golem Counters. Explodes at 2+!');
       if ((card.hatchCounters || 0) > 0)
         addOppFamBadge('hatch-counter-badge bomb-counter-badge bomb-counter-ready', '🥚' + card.hatchCounters, `Golden Egg: ${card.hatchCounters} hatch counter(s)`, 'Hatch Counters');
-      if (card.isClone && card.cloneSourceName)
-        addOppFamBadge('clone-badge', '🧬' + card.cloneSourceName, `Clone — copying ${card.cloneSourceName}'s passive and HP`, 'Is a Clone!');
+      if (card.isClone && card.cloneSourceName) {
+        const $cloneLabel = document.createElement('div');
+        $cloneLabel.className = 'clone-name-label';
+        $cloneLabel.textContent = '🧬 ' + card.cloneSourceName;
+        $cloneLabel.dataset.tooltip = `Clone — copying ${card.cloneSourceName}'s passive and HP`;
+        $c.appendChild($cloneLabel);
+        fitCloneLabel($cloneLabel);
+      }
       if (card.paidCost > 0) {
         if (card.name === 'Cute Hydra') addOppFamBadge('paid-cost-badge', '🐉' + card.paidCost, `Hits ${card.paidCost} target(s)`, "Cute Hydra's X");
         else addOppFamBadge('paid-cost-badge', '🦅' + card.paidCost, `Exhausts ${card.paidCost} familiar(s)`, "Unsettling Vulture's X");
@@ -16239,6 +16270,7 @@ function renderHand(state) {
     $card.draggable = false; // prevent native browser drag ghost
     $card.dataset.cardIndex = idx;
     $card.style.backgroundImage = `url("${imgPath}")`;
+    $card.style.zIndex = hand.length - idx; // leftmost card on top
 
     // ── Student-pick mode ──────────────────────────────────────────────
     if (magicModifierMode && state.examSubPhase === 'magic-modifier-discard' && !state.you.magicModifierReady) {
@@ -18482,13 +18514,22 @@ function renderMyBoard(state) {
     if (card && card.cursed)
       addFamBadge('cursed-badge', card.permanentlyCursed ? '🩻🔒' : '🩻', card.permanentlyCursed ? 'Permanently Cursed' : 'Cursed: All direct damage dealt becomes 1', card.permanentlyCursed ? 'Any damage this Familiar deals is reduced to 1. This curse is permanent and cannot be lifted!' : 'All damage it deals becomes 1!');
     if (card && (card.weakenedStacks || 0) > 0)
-    if (card && (card.weakenedStacks || 0) > 0)
       addFamBadge('weakened-badge debuff-badge', '🟣' + card.weakenedStacks, 'Weakened', `Next damage taken is doubled ${card.weakenedStacks}×!`);
     if (card && card.dreamDust)
       addFamBadge('dream-dust-badge buff-badge', '🫧', 'Dream Dust', 'Immune to all opponent cards, effects and any damage!');
     if (card && you.whiteBullShieldActive && !card.whiteBullShield)
-    if (card && card.isClone && card.cloneSourceName)
-      addFamBadge('clone-badge', '🧬' + card.cloneSourceName, `Clone — copying ${card.cloneSourceName}'s passive and HP`, 'Is a Clone!');
+      addFamBadge('white-bull-badge immune-badge', '🐂', 'Damage redirected to White Bull', 'Protected by White Bull!');
+    // Clone name label (full-width at top of card)
+    const $oldCloneLabel = el.querySelector('.clone-name-label');
+    if ($oldCloneLabel) $oldCloneLabel.remove();
+    if (card && card.isClone && card.cloneSourceName) {
+      const $cloneLabel = document.createElement('div');
+      $cloneLabel.className = 'clone-name-label';
+      $cloneLabel.textContent = '🧬 ' + card.cloneSourceName;
+      $cloneLabel.dataset.tooltip = `Clone — copying ${card.cloneSourceName}'s passive and HP`;
+      el.appendChild($cloneLabel);
+      fitCloneLabel($cloneLabel);
+    }
     const isGuardedFam = card && (you.familiars || []).some(f =>
       f && f.harpyGuardTarget && f.harpyGuardTarget.type === 'familiar' && f.harpyGuardTarget.familiarIndex === idx
     );
@@ -19756,6 +19797,7 @@ function updatePlayerBackground(state) {
   // Create desaturated, dark versions for the game felt
   const gameEl = document.getElementById('screen-game');
   if (!gameEl) return;
+  gameEl.style.setProperty('--my-player-color', myColor);
   gameEl.style.setProperty('--player-felt-light', `hsl(${hDeg}, ${satLight}%, 22%)`);
   gameEl.style.setProperty('--player-felt',       `hsl(${hDeg}, ${satMid}%, 15%)`);
   gameEl.style.setProperty('--player-felt-dark',   `hsl(${hDeg}, ${satDark}%, 8%)`);
@@ -20218,6 +20260,10 @@ function renderProctors(state) {
       $card.appendChild($badge);
     }
 
+    // Locked state (permanently impossible for THIS player — e.g. Familiar Trainer / Witch Teacher)
+    const isLocked = (state.you.lockedProctors || []).includes(name);
+    $card.classList.toggle('proctor-locked', isLocked && !isDisabled);
+
     // Distracted state
     $card.classList.toggle('proctor-distracted', isDistracted && !isDisabled);
 
@@ -20287,6 +20333,10 @@ function renderProctors(state) {
       $stamp.title = `Coatl — approval incoming next round`;
       $card.appendChild($stamp);
     });
+
+    // Highlight if this player is on track for this proctor's approval
+    const myPending = (pendingPids.includes(state.you.id) || coatlPendingPids.includes(state.you.id)) && !approved.includes(state.you.id);
+    $card.classList.toggle('proctor-my-pending', myPending && !isDisabled && !isLocked);
 
     // Proctor distract targeting mode
     const isCoatlMarkMode = targetingMode && targetingMode.effectType === 'coatl-mark';
