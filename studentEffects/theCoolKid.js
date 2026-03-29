@@ -32,7 +32,7 @@ export function escapeCondition(player, room) {
   // All non-won, non-left players must have ≥1 living familiar
   for (const [pid, p] of room.players) {
     if (p.left || p.won) continue;
-    const living = (p.familiars || []).filter(f => (f.currentHp || 0) > 0).length;
+    const living = (p.familiars || []).filter(f => f && (f.currentHp || 0) > 0).length;
     if (living === 0) return false;
   }
   return true;

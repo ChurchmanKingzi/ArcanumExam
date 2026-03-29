@@ -61,7 +61,7 @@ SPELL_REGISTRY.set('Energy Beam', {
     let count = 0;
     for (const [, p] of room.players) {
       if (p.left) continue;
-      if ((p.chosenStudent && !p.studentDead) || (p.familiars || []).some(f => f.currentHp > 0)) {
+      if ((p.chosenStudent && !p.studentDead) || (p.familiars || []).some(f => f && f.currentHp > 0)) {
         count++;
         if (count >= 2) return true;
       }
@@ -71,7 +71,7 @@ SPELL_REGISTRY.set('Energy Beam', {
   setup: ({ room, playerId }) => {
     for (const [pid, p] of room.players) {
       if (pid === playerId || p.left) continue;
-      if ((p.chosenStudent && !p.studentDead) || (p.familiars || []).some(f => f.currentHp > 0)) {
+      if ((p.chosenStudent && !p.studentDead) || (p.familiars || []).some(f => f && f.currentHp > 0)) {
         return { damage: 12 };
       }
     }
@@ -125,6 +125,7 @@ SPELL_REGISTRY.set('Venom Infusion', {
       if (p.left) continue;
       if (p.chosenStudent && !p.studentDead && (p.chosenStudent.poisonStacks || 0) > 0) return true;
       for (const f of (p.familiars || [])) {
+        if (!f) continue;
         if (f.currentHp > 0 && (f.poisonStacks || 0) > 0) return true;
       }
     }
@@ -137,6 +138,7 @@ SPELL_REGISTRY.set('Venom Infusion', {
       if (p.left) continue;
       if (p.chosenStudent && !p.studentDead && (p.chosenStudent.poisonStacks || 0) > 0) { hasPoisoned = true; break; }
       for (const f of (p.familiars || [])) {
+        if (!f) continue;
         if (f.currentHp > 0 && (f.poisonStacks || 0) > 0) { hasPoisoned = true; break; }
       }
       if (hasPoisoned) break;
@@ -154,7 +156,7 @@ SPELL_REGISTRY.set('Poisoned Well', {
   canPlay: ({ room, playerId }) => {
     for (const [pid, p] of room.players) {
       if (pid === playerId || p.left) continue;
-      if ((p.chosenStudent && !p.studentDead) || (p.familiars || []).some(f => f.currentHp > 0)) return true;
+      if ((p.chosenStudent && !p.studentDead) || (p.familiars || []).some(f => f && f.currentHp > 0)) return true;
     }
     return false;
   },
@@ -173,7 +175,7 @@ SPELL_REGISTRY.set('Toxic Fumes', {
   canPlay: ({ room, playerId }) => {
     for (const [pid, p] of room.players) {
       if (pid === playerId || p.left) continue;
-      if ((p.familiars || []).some(f => f.currentHp > 0)) return true;
+      if ((p.familiars || []).some(f => f && f.currentHp > 0)) return true;
     }
     return false;
   },

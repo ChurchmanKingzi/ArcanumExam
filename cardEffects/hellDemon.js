@@ -6,7 +6,7 @@ export default function hellDemon(familiar, context) {
   const player = context.player;
   if (!player) return null;
 
-  const aliveFamiliars = (player.familiars || []).filter(f => f.currentHp > 0);
+  const aliveFamiliars = (player.familiars || []).filter(f => f && f.currentHp > 0);
   // Pawn passive: counts as 2 Familiars
   let count = 0;
   for (const f of aliveFamiliars) {

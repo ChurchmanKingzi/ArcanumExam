@@ -22,6 +22,6 @@ export function activeEffect(student, context) {
  */
 export function escapeCondition(player, room) {
   const startCount = player.startingFamiliarCount ?? 0;
-  const currentLiving = (player.familiars || []).filter(f => (f.currentHp || 0) > 0).length;
+  const currentLiving = (player.familiars || []).filter(f => f && (f.currentHp || 0) > 0).length;
   return currentLiving >= startCount + 2;
 }

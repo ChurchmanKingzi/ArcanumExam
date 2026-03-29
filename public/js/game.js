@@ -20,6 +20,12 @@ const $zoomImg     = document.getElementById('card-zoom-img');
 const $studentSlot = document.getElementById('my-student-slot');
 const $discardSlot = document.getElementById('my-discard-slot');
 const $proctorGrid = document.getElementById('proctor-grid');
+const $proctorArea = document.getElementById('proctor-area');
+const $proctorToggle = document.getElementById('proctor-toggle');
+$proctorToggle.addEventListener('click', () => {
+  $proctorArea.classList.toggle('collapsed');
+  $proctorToggle.title = $proctorArea.classList.contains('collapsed') ? 'Show Proctors (P)' : 'Hide Proctors (P)';
+});
 const $btnPass     = document.getElementById('btn-pass');
 const $btnDiscard  = document.getElementById('btn-discard');
 const $studentRow  = document.getElementById('my-student-row');
@@ -160,13 +166,21 @@ let $snareWaitingBanner = null;
 let _snareWaitingTimerRaf = null;
 let _snareWaitingDelayTimer = null;
 
-function showSnareWaitingBanner(startedAt, timeoutMs, promptedPlayerName) {
-  const titleText = promptedPlayerName
-    ? `⏳ Waiting for ${promptedPlayerName} to react…`
-    : '⏳ Waiting for other players to activate a card or effect…';
-  const subText = promptedPlayerName
-    ? `${promptedPlayerName} is deciding whether to activate a Snare`
-    : 'Another player may be making a decision';
+function showSnareWaitingBanner(startedAt, timeoutMs, playerNames) {
+  let titleText, subText;
+  if (Array.isArray(playerNames) && playerNames.length > 0) {
+    const nameStr = playerNames.join(', ');
+    titleText = `⏳ Waiting for ${nameStr} to react…`;
+    subText = playerNames.length === 1
+      ? `${nameStr} is deciding whether to activate a Snare`
+      : `${nameStr} may activate a Snare`;
+  } else if (typeof playerNames === 'string' && playerNames) {
+    titleText = `⏳ Waiting for ${playerNames} to react…`;
+    subText = `${playerNames} is deciding whether to activate a Snare`;
+  } else {
+    titleText = '⏳ Waiting for other players to react…';
+    subText = 'Another player may be making a decision';
+  }
   if (!$snareWaitingBanner) {
     $snareWaitingBanner = document.createElement('div');
     $snareWaitingBanner.className = 'snare-waiting-modal';
@@ -202,7 +216,7 @@ function showSnareWaitingBannerNoTimer(playerName) {
   if (_snareWaitingTimerRaf) { cancelAnimationFrame(_snareWaitingTimerRaf); _snareWaitingTimerRaf = null; }
   const titleText = playerName
     ? `⌛ Waiting for ${playerName}…`
-    : '⌛ Waiting for other players to activate a card or effect…';
+    : '⌛ Waiting for another player…';
   const subText = playerName
     ? `${playerName} is making a selection`
     : 'Another player is making a selection';
@@ -235,13 +249,16 @@ function hideSnareWaitingBanner() {
 // ── Energy Core waiting banner (shown while opponents are still picking) ──
 let $energyCoreWaitingBanner = null;
 
-function showEnergyCoreWaitingBanner(pendingCount) {
+function showEnergyCoreWaitingBanner(pendingCount, pendingNames) {
   if (!$energyCoreWaitingBanner) {
     $energyCoreWaitingBanner = document.createElement('div');
     $energyCoreWaitingBanner.className = 'energy-core-waiting-banner';
     document.body.appendChild($energyCoreWaitingBanner);
   }
-  $energyCoreWaitingBanner.textContent = `⚡ Waiting for ${pendingCount} opponent${pendingCount !== 1 ? 's' : ''} to pick cards…`;
+  const nameStr = (pendingNames && pendingNames.length > 0) ? pendingNames.join(', ') : null;
+  $energyCoreWaitingBanner.textContent = nameStr
+    ? `⚡ Waiting for ${nameStr} to pick cards…`
+    : `⚡ Waiting for ${pendingCount} opponent${pendingCount !== 1 ? 's' : ''} to pick cards…`;
 }
 
 function hideEnergyCoreWaitingBanner() {
@@ -277,6 +294,9 @@ const $peacefulBanner  = document.getElementById('peaceful-banner');
 const $oracleTypePicker = document.getElementById('oracle-type-picker');
 const $oracleResultOverlay = document.getElementById('oracle-result-overlay');
 const $roundNumber  = document.getElementById('round-number');
+const $turnTimerDisplay = document.getElementById('turn-timer-display');
+const $turnTimerBarFill = $turnTimerDisplay.querySelector('.turn-timer-bar-fill');
+const $turnTimerText    = $turnTimerDisplay.querySelector('.turn-timer-text');
 const $spellOverlay = document.getElementById('active-spell-overlay');
 const $spellPlayer  = document.getElementById('active-spell-player');
 const $spellCard    = document.getElementById('active-spell-card');
@@ -390,6 +410,7 @@ function enterDiscardMode(cardIndex, cost, maxCost) {
   const card = lastState?.you?.hand?.[cardIndex];
   const minCost = (card && card.minCost !== undefined) ? card.minCost : 1;
   discardMode = { cardIndex, cost, maxCost: maxCost ?? null, minCost, selectedPayment: new Set() };
+  emit('game:consideringCard', { cardIndex });
   rerenderHand();
   updateButtons();
   if (lastState) renderMyBoard(lastState);
@@ -417,14 +438,14 @@ function countTappedTargetsClient(state) {
   if (you.chosenStudent && !you.studentDead && you.tappedStudent) count++;
   if (!you.classPetImmunity) {
     for (let i = 0; i < (you.familiars || []).length; i++) {
-      if ((you.familiars[i].currentHp || 0) > 0 && !you.familiars[i].mechImmune && (you.tappedFamiliars || []).includes(i)) count++;
+      if (you.familiars[i] && (you.familiars[i].currentHp || 0) > 0 && !you.familiars[i].mechImmune && (you.tappedFamiliars || []).includes(i)) count++;
     }
   }
   for (const opp of (state.others || [])) {
     if (opp.chosenStudent && !opp.studentDead && opp.tappedStudent) count++;
     if (!opp.classPetImmunity) {
       for (let i = 0; i < (opp.familiars || []).length; i++) {
-        if ((opp.familiars[i].currentHp || 0) > 0 && !opp.familiars[i].mechImmune && (opp.tappedFamiliars || []).includes(i)) count++;
+        if (opp.familiars[i] && (opp.familiars[i].currentHp || 0) > 0 && !opp.familiars[i].mechImmune && (opp.tappedFamiliars || []).includes(i)) count++;
       }
     }
   }
@@ -464,7 +485,7 @@ function isTauntBlockedClient(opp, myId, targetType, familiarIndex, options = {}
   // Familiars
   for (let i = 0; i < (opp.familiars || []).length; i++) {
     const f = opp.familiars[i];
-    if (f.currentHp <= 0 || (f.taunting || 0) <= 0) continue;
+    if (!f || f.currentHp <= 0 || (f.taunting || 0) <= 0) continue;
     let viable = true;
     if (options.tappedOnly && !tappedFams.includes(i)) viable = false;
     if (options.untappedOnly && tappedFams.includes(i)) viable = false;
@@ -761,6 +782,7 @@ function hasGigaSteroidTarget(state) {
 function exitDiscardMode() {
   if (discardMode && discardMode.elixirMode) {
     discardMode = null;
+    emit('game:consideringCard', { cardIndex: -1 });
     rerenderHand();
     updateButtons();
     if (lastState) renderMyBoard(lastState);
@@ -772,6 +794,7 @@ function exitDiscardMode() {
     return;
   }
   discardMode = null;
+  emit('game:consideringCard', { cardIndex: -1 });
   rerenderHand();
   updateButtons();
   if (lastState) renderMyBoard(lastState);
@@ -817,6 +840,8 @@ function togglePaymentCard(idx) {
   }
   rerenderHand();
   updateButtons();
+  // Update server with current selection for timeout auto-play
+  emit('game:consideringCard', { cardIndex: discardMode.cardIndex, selectedPayment: [...discardMode.selectedPayment] });
 }
 
 function confirmDiscard() {
@@ -4587,11 +4612,16 @@ function hideCWPassivePrompt() {
   $cwPassiveButtons.innerHTML = '';
 }
 
-function showCWWaitingBanner() {
-  if ($cwWaitingBanner) return;
+function showCWWaitingBanner(waitingNames) {
+  const nameStr = (waitingNames && waitingNames.length > 0) ? waitingNames.join(', ') : null;
+  const text = nameStr ? `❄️ Waiting for ${nameStr} (Chilly Wizzy)...` : '❄️ Waiting for Chilly Wizzy...';
+  if ($cwWaitingBanner) {
+    $cwWaitingBanner.textContent = text;
+    return;
+  }
   $cwWaitingBanner = document.createElement('div');
   $cwWaitingBanner.className = 'cw-waiting-banner';
-  $cwWaitingBanner.textContent = '❄️ Waiting for Chilly Wizzy...';
+  $cwWaitingBanner.textContent = text;
   document.body.appendChild($cwWaitingBanner);
 }
 
@@ -4627,9 +4657,10 @@ function enterCWSpellSelect() {
       const minC = c.minCost ?? 1;
       if (minC > hand.length - 1) continue;
     } else {
-      // Increase first (Crystal, Royalty), then decrease (Chuunibyou, Chilly Wizzy)
+      // Increase first (Crystal, Royalty, Corgi), then decrease (Chuunibyou, Chilly Wizzy)
       const royaltyInc = (state.you.royaltyStacks || 0) * 2;
-      cost = cost + mcp + royaltyInc;
+      const corgiInc = state.you.corgiPenalty || 0;
+      cost = cost + mcp + royaltyInc + corgiInc;
       if (scr > 0) cost = Math.max(0, cost - scr);
       if (c.chillyWizzyRevealed) cost = Math.max(0, cost - 3);
       if (cost > hand.length - 1) continue; // can't afford (spell itself leaves hand)
@@ -4662,9 +4693,10 @@ function enterCWSpellPay(cardIndex) {
   const mcp = state.you.manaCrystalPenalty || 0;
   let cost = spell.cost || 0;
   if (cost !== -1) {
-    // Increase first (Crystal, Royalty), then decrease
+    // Increase first (Crystal, Royalty, Corgi), then decrease
     const royaltyInc = (state.you.royaltyStacks || 0) * 2;
-    cost = cost + mcp + royaltyInc;
+    const corgiInc = state.you.corgiPenalty || 0;
+    cost = cost + mcp + royaltyInc + corgiInc;
     if (scr > 0) cost = Math.max(0, cost - scr);
     if (spell.chillyWizzyRevealed) cost = Math.max(0, cost - 3);
   }
@@ -10192,6 +10224,18 @@ document.addEventListener('contextmenu', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  // Skip hotkeys when typing in input fields
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'p' || e.key === 'P') {
+    $proctorArea.classList.toggle('collapsed');
+    $proctorToggle.title = $proctorArea.classList.contains('collapsed') ? 'Show Proctors (P)' : 'Hide Proctors (P)';
+    return;
+  }
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    if (_pingHoverTarget) trySendPing(resolvePingTarget(_pingHoverTarget));
+    return;
+  }
   if (e.key === 'Escape') {
     if (gameOverShown) dismissGameOver();
     else if (discardViewerOpen) closeDiscardViewer();
@@ -10231,6 +10275,162 @@ document.addEventListener('mousedown', (e) => {
   if (gameOverShown && !$gameOverOverlay.classList.contains('hidden')) { dismissGameOver(); return; }
   if (discardViewerOpen && !$discardViewer.contains(e.target)) closeDiscardViewer();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PING SYSTEM — middle-click or Tab to highlight a card/player for everyone
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Resolve a pingable target by walking up the DOM from a starting element. */
+function resolvePingTarget(startEl) {
+  let el = startEl;
+  while (el && el !== document.body) {
+    if (el.classList.contains('opponent-avatar')) {
+      const seat = el.closest('.opponent-seat');
+      const oppId = seat ? [...opponentElements].find(([, v]) => v === seat)?.[0] : null;
+      if (oppId) return { targetType: 'avatar', targetPlayerId: oppId };
+      break;
+    }
+    if (el.classList.contains('opponent-board-card') && el.dataset.ownerId) {
+      const ownerId = el.dataset.ownerId;
+      const type = el.dataset.targetType;
+      const fi = parseInt(el.dataset.familiarIndex, 10);
+      if (type === 'student') return { targetType: 'student', targetPlayerId: ownerId };
+      if (type === 'familiar' && !isNaN(fi)) return { targetType: 'familiar', targetPlayerId: ownerId, targetIndex: fi };
+      break;
+    }
+    if (el.id === 'my-student-slot') return { targetType: 'student', targetPlayerId: lastState?.you?.id };
+    if (el.classList.contains('my-familiar-card')) {
+      const fi = parseInt(el.dataset.familiarIndex, 10);
+      if (!isNaN(fi)) return { targetType: 'familiar', targetPlayerId: lastState?.you?.id, targetIndex: fi };
+      break;
+    }
+    if (el.classList.contains('opponent-card-icon')) {
+      const seat = el.closest('.opponent-seat');
+      const oppId = seat ? [...opponentElements].find(([, v]) => v === seat)?.[0] : null;
+      const ci = parseInt(el.dataset.cardIndex, 10);
+      if (oppId) return { targetType: 'hand-card', targetPlayerId: oppId, targetIndex: !isNaN(ci) ? ci : -1 };
+      break;
+    }
+    if (el.classList.contains('proctor-card')) return { targetType: 'proctor', targetName: el.dataset.proctorName };
+    if (el.classList.contains('hand-card')) {
+      const ci = parseInt(el.dataset.cardIndex, 10);
+      return { targetType: 'hand-card', targetPlayerId: lastState?.you?.id, targetIndex: !isNaN(ci) ? ci : -1 };
+    }
+    if (el.classList.contains('my-equip-card')) {
+      const ei = parseInt(el.dataset.equipIndex, 10);
+      if (!isNaN(ei)) return { targetType: 'equip', targetPlayerId: lastState?.you?.id, targetIndex: ei };
+      break;
+    }
+    if (el.classList.contains('my-snare-card')) {
+      const si = parseInt(el.dataset.snareIndex, 10);
+      if (!isNaN(si)) return { targetType: 'snare', targetPlayerId: lastState?.you?.id, targetIndex: si };
+      break;
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
+
+/** Try to send a ping, respecting cooldown. */
+function trySendPing(pingData) {
+  if (!pingData) return;
+  const now = Date.now();
+  if (window._lastPingSentAt && now - window._lastPingSentAt < 250) return;
+  window._lastPingSentAt = now;
+  emit('game:ping', pingData);
+}
+
+// Track element under cursor for keyboard ping
+let _pingHoverTarget = null;
+document.addEventListener('mouseover', (e) => { _pingHoverTarget = e.target; });
+
+// Middle-click ping
+document.addEventListener('mousedown', (e) => {
+  if (e.button !== 1) return;
+  e.preventDefault();
+  trySendPing(resolvePingTarget(e.target));
+});
+
+// Prevent middle-click scroll/paste on the game area
+document.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
+
+/**
+ * Render a ping flash on a DOM element.
+ */
+function showPingFlash($el, color) {
+  if (!$el) return;
+  const $flash = document.createElement('div');
+  $flash.className = 'ping-flash';
+  $flash.style.setProperty('--ping-color', color);
+  // Position over the element
+  const rect = $el.getBoundingClientRect();
+  $flash.style.left = (rect.left - 6) + 'px';
+  $flash.style.top = (rect.top - 6) + 'px';
+  $flash.style.width = (rect.width + 12) + 'px';
+  $flash.style.height = (rect.height + 12) + 'px';
+  $flash.style.borderRadius = getComputedStyle($el).borderRadius || '8px';
+  document.body.appendChild($flash);
+  setTimeout(() => $flash.remove(), 1200);
+}
+
+/**
+ * Find the DOM element for a ping target and flash it.
+ */
+function renderPing(ping, state) {
+  const { targetType, targetPlayerId, targetIndex, targetName, pingerColor } = ping;
+  let $target = null;
+
+  if (targetType === 'proctor') {
+    $target = document.querySelector(`.proctor-card[data-proctor-name="${targetName}"]`);
+  } else if (targetType === 'avatar') {
+    const $seat = opponentElements.get(targetPlayerId);
+    $target = $seat?.querySelector('.opponent-avatar');
+  } else if (targetType === 'hand-card') {
+    if (targetPlayerId === state.you.id) {
+      // It's my hand — flash the specific card
+      if (targetIndex >= 0) {
+        $target = document.querySelector(`.hand-card[data-card-index="${targetIndex}"]`);
+      }
+      if (!$target) {
+        const $cards = document.querySelectorAll('.hand-card');
+        if ($cards.length > 0) $target = $cards[0];
+      }
+    } else {
+      // It's an opponent's hand — flash their card icon
+      const $seat = opponentElements.get(targetPlayerId);
+      if ($seat) {
+        const $icons = $seat.querySelectorAll('.opponent-card-icon');
+        if (targetIndex >= 0 && targetIndex < $icons.length) {
+          $target = $icons[targetIndex];
+        } else if ($icons.length > 0) {
+          $target = $icons[0];
+        }
+      }
+    }
+  } else if (targetType === 'student' || targetType === 'familiar') {
+    $target = findTargetElement(targetPlayerId, targetType, targetIndex, state);
+  } else if (targetPlayerId === state.you.id) {
+    // Own equip/snare
+    if (targetType === 'equip') {
+      $target = document.querySelector(`.my-equip-card[data-equip-index="${targetIndex}"]`);
+    } else if (targetType === 'snare') {
+      $target = document.querySelector(`.my-snare-card[data-snare-index="${targetIndex}"]`);
+    }
+  }
+
+  if ($target) showPingFlash($target, pingerColor);
+}
+
+/**
+ * Process ping events from server state.
+ */
+function processPingEvents(state) {
+  if (!state.pingEvents || state.pingEvents.length === 0) return;
+  for (const ping of state.pingEvents) {
+    renderPing(ping, state);
+  }
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  HELPERS
@@ -10278,10 +10478,12 @@ function canAfford(card, handSize, spellCostReduction, familiarCostReduction, pr
   }
   const crystalPenalty = (card.type === 'Spell' && lastState) ? (lastState.you.manaCrystalPenalty || 0) : 0;
   const royaltyIncrease = lastState ? (lastState.you.royaltyStacks || 0) * 2 : 0;
+  const corgiPenalty = lastState ? (lastState.you.corgiPenalty || 0) : 0;
   let cost = card.cost || 0;
   if (royaltyIncrease > 0) cost += royaltyIncrease; // Royalty before decreases
+  if (corgiPenalty > 0) cost += corgiPenalty; // Royal Corgi passive
   if (card.type === 'Spell' && forbiddenGrimoire) {
-    cost = crystalPenalty + royaltyIncrease; // Grimoire sets base to 0, Crystal + Royalty add on top
+    cost = crystalPenalty + royaltyIncrease + corgiPenalty; // Grimoire sets base to 0, penalties add on top
   } else if (card.type === 'Spell') {
     cost = Math.max(0, cost + crystalPenalty - spellCostReduction);
   } else if (card.type === 'Familiar' && familiarCostReduction) {
@@ -10326,10 +10528,12 @@ function getEffectiveCost(card, spellCostReduction, familiarCostReduction, prepC
   }
   const crystalPenalty = (card.type === 'Spell' && lastState) ? (lastState.you.manaCrystalPenalty || 0) : 0;
   const royaltyIncrease = lastState ? (lastState.you.royaltyStacks || 0) * 2 : 0;
+  const corgiPenalty = lastState ? (lastState.you.corgiPenalty || 0) : 0;
   let cost = card.cost || 0;
   if (royaltyIncrease > 0) cost += royaltyIncrease; // Royalty before decreases
+  if (corgiPenalty > 0) cost += corgiPenalty; // Royal Corgi passive
   if (card.type === 'Spell' && forbiddenGrimoire) {
-    cost = crystalPenalty + royaltyIncrease; // Grimoire sets base to 0, Crystal + Royalty add on top
+    cost = crystalPenalty + royaltyIncrease + corgiPenalty; // Grimoire sets base to 0, penalties add on top
   } else if (card.type === 'Spell') {
     cost = Math.max(0, cost + crystalPenalty - spellCostReduction);
   } else if (card.type === 'Familiar' && familiarCostReduction) {
@@ -12179,7 +12383,7 @@ function updateTargetingUI() {
     $btnAttack.classList.remove('hidden');
     $btnAttack.classList.toggle('btn-attack-disabled', !targetingMode.selected);
   } else if (targetingMode.effectType === 'chaos-magic-awaiting') {
-    $targetingLabel.textContent = `🌀 Chaos Magic — Waiting for your opponent to pick a Spell…`;
+    $targetingLabel.textContent = `🌀 Chaos Magic — Waiting for ${targetingMode.waitingPlayerName || 'opponent'} to pick a Spell…`;
     $btnAttack.classList.add('hidden');
   } else if (targetingMode.effectType === 'chaos-magic-pick') {
     $targetingLabel.textContent = `🌀 Chaos Magic — Pick a Spell to force your opponent to cast!`;
@@ -12695,7 +12899,7 @@ function updateTargetingUI() {
     $targetingLabel.textContent = '🗝️ Master Key: Choose a card to give away!';
     $btnAttack.classList.add('hidden');
   } else if (targetingMode.effectType === 'master-key-waiting') {
-    $targetingLabel.textContent = '🗝️ Master Key: Waiting for opponent to give a card…';
+    $targetingLabel.textContent = `🗝️ Master Key: Waiting for ${targetingMode.waitingPlayerName || 'opponent'} to give a card…`;
     $btnAttack.classList.add('hidden');
   } else if (targetingMode.effectType === 'werz-swap') {
     if (targetingMode.subPhase === 'select-card') {
@@ -13013,7 +13217,7 @@ function updateTargetingUI() {
     $targetingOverlay.classList.add('hidden');
     return;
   } else if (targetingMode.effectType === 'mage-awaiting-pick') {
-    $targetingLabel.textContent = '🧙 Waiting for opponent to choose a Spell...';
+    $targetingLabel.textContent = `🧙 Waiting for ${targetingMode.waitingPlayerName || 'opponent'} to choose a Spell...`;
     $btnAttack.classList.add('hidden');
   } else if (targetingMode.effectType === 'mage-spell-pay') {
     const n = targetingMode.selectedPayment.size;
@@ -13286,7 +13490,7 @@ function updateTargetingUI() {
     $btnAttack.classList.add('hidden');
     $btnCancelTarget.classList.add('hidden');
   } else if (targetingMode.effectType === 'awaiting-opponent') {
-    $targetingLabel.textContent = 'Waiting for opponent...';
+    $targetingLabel.textContent = targetingMode.waitingLabel || 'Waiting for opponent...';
     $btnAttack.classList.add('hidden');
     $btnCancelTarget.classList.add('hidden');
   }
@@ -13457,6 +13661,43 @@ function getSeatPositions(totalPlayers, mySeat) {
 
 let prevOpponentTaps = new Map();
 
+/**
+ * Determine who currently has priority (the "actively doing something" player).
+ * Used for the glowing indicator on avatars/hand area.
+ */
+function getActivePlayerId(state) {
+  // Snare reaction: activated player or currently prompted player
+  if (state.snareReaction) {
+    if (state.snareReaction.activatedPlayerId) return state.snareReaction.activatedPlayerId;
+    if (state.snareReaction.currentPromptPlayerId) return state.snareReaction.currentPromptPlayerId;
+  }
+  // Bluff reaction
+  if (state.bluffReaction && state.bluffReaction.ownerId) return state.bluffReaction.ownerId;
+  // Magnet redirect
+  if (state.pendingMagnetRedirect) return state.pendingMagnetRedirect.playerId;
+  // Pending equip trigger
+  if (state.pendingEquipTrigger) {
+    return state.pendingEquipTrigger.gerrymanderPlayerId || state.pendingEquipTrigger.playerId;
+  }
+  // Pending activation (interjecting or normal)
+  if (state.pendingActivation) {
+    return state.pendingActivation.gerrymanderPlayerId || state.pendingActivation.playerId;
+  }
+  // Timed reactions (elixir, price tag, etc.) — find the prompted player
+  const timedStates = [
+    state.pendingElixir, state.pendingPriceTag, state.pendingAnkh,
+    state.pendingPunchInTheBox, state.pendingWeakeningCrystal,
+    state.pendingSwordBreakingRock, state.pendingBarbarianSword,
+    state.pendingWingedCamera, state.coolKidProtect, state.jetpackReaction,
+  ].filter(Boolean);
+  for (const r of timedStates) {
+    const pid = r.playerId || r.promptingPlayerId;
+    if (pid) return pid;
+  }
+  // Default: turn player
+  return state.currentTurnId;
+}
+
 function renderOpponents(state) {
   const positions = getSeatPositions(state.playerCount, state.you.seat);
   const revealed = isRevealed(state.phase);
@@ -13516,7 +13757,9 @@ function renderOpponents(state) {
       $avatarIcon.textContent = opp.name.charAt(0).toUpperCase();
     }
     const inSnarePhase = state.phase === 'exam' && state.examSubPhase === 'snare-prep';
-    $avatarEl.classList.toggle('active-turn', state.currentTurnId === opp.id && !inSnarePhase);
+    const activeId = inSnarePhase ? null : getActivePlayerId(state);
+    $avatarEl.classList.toggle('active-turn', activeId === opp.id);
+    $avatarEl.classList.toggle('turn-owner', state.currentTurnId === opp.id && !inSnarePhase);
 
     // Player color border
     const playerColor = (state.playerColors || {})[opp.id];
@@ -13552,7 +13795,7 @@ function renderOpponents(state) {
     if (isSelectOpponentMode && !opp.left && !opp.disconnected) {
       if (targetingMode.opponentAction === 'poison-all') {
         const hasAlive = (opp.chosenStudent && !opp.studentDead)
-          || (opp.familiars || []).some(f => f.currentHp > 0);
+          || (opp.familiars || []).some(f => f && f.currentHp > 0);
         oppIsSelectable = hasAlive;
       } else if (targetingMode.opponentAction === 'swap-discard') {
         oppIsSelectable = true; // any opponent is valid
@@ -13568,7 +13811,7 @@ function renderOpponents(state) {
     // Hawk-strike: opponents with living targets are selectable
     if (isHawkStrikeMode && !opp.left && !opp.disconnected) {
       const hasAlive = (opp.chosenStudent && !opp.studentDead)
-        || (opp.familiars || []).some(f => f.currentHp > 0);
+        || (opp.familiars || []).some(f => f && f.currentHp > 0);
       if (hasAlive) oppIsSelectable = true;
     }
     const oppIsSelected = isSelectOpponentMode && targetingMode.selected.has(opp.id);
@@ -13652,8 +13895,8 @@ function renderOpponents(state) {
     if ((isSnareSelectOpp || isPoisonedWellSelect || isEnergyBeamSelect || isGoldenAppleSelect || isSmugglersGiveSelect || isButterflyCloudSelect || isButterflyFormSelect || isShrinkSelect || isChaosMagicSelect || isReviveEquipTarget || isCosmicBalanceSelect || isFirewallSelect || isFlameAvalancheSelect || isFlashFloodSelect || isRainOfSporesSelect || isTransmissionPickOpp || isCrystalWellOppSelect || isSpiderAvalancheSelect) && !opp.left && !opp.disconnected) {
       const famOnly = isPoisonedWellSelect && targetingMode.familiarsOnly;
       const hasAlive = famOnly
-        ? ((opp.familiars || []).some(f => f.currentHp > 0 && !f.mechImmune) && !opp.classPetImmunity)
-        : ((opp.chosenStudent && !opp.studentDead) || (opp.familiars || []).some(f => f.currentHp > 0));
+        ? ((opp.familiars || []).some(f => f && f.currentHp > 0 && !f.mechImmune) && !opp.classPetImmunity)
+        : ((opp.chosenStudent && !opp.studentDead) || (opp.familiars || []).some(f => f && f.currentHp > 0));
       const isEligible = (isGoldenAppleSelect || isSmugglersGiveSelect || isFirewallSelect || isFlameAvalancheSelect || isFlashFloodSelect || isTransmissionPickOpp || isSpiderAvalancheSelect)
         ? (targetingMode.eligibleOpponents || []).includes(opp.id)
         : isCrystalWellOppSelect
@@ -13839,6 +14082,7 @@ function renderOpponents(state) {
         const rc = revealedMap.get(i);
         const $icon = document.createElement('div');
         $icon.className = 'opponent-card-icon';
+        $icon.dataset.cardIndex = i;
         if (rc) {
           // Revealed card — show face-up
           $icon.style.backgroundImage = `url("${cardImg(rc)}")`;
@@ -15968,10 +16212,13 @@ function renderHand(state) {
   const studentTapped = state.you.tappedStudent || false;
   const _spiderPassiveDuringSnare = state.snareReaction && state.pendingActivation
     && (state.pendingActivation.effectType === 'crimson-passive' || state.pendingActivation.effectType === 'diamond-passive' || state.pendingActivation.effectType === 'letter-of-lies-pick');
+  const _paInterjection = state.pendingActivation && state.pendingActivation.playerId !== state.you.id
+    && !(state.pendingActivation.gerrymanderPlayerId === state.you.id)
+    && state.currentTurnId === state.you.id;
   const pendingReaction = !!(state.pendingPriceTag || state.pendingElixir || state.pendingAnkh ||
     state.pendingPunchInTheBox || state.pendingWingedCamera || state.pendingSwordBreakingRock ||
     state.pendingWeakeningCrystal || state.pendingBarbarianSword || (state.snareReaction && !_spiderPassiveDuringSnare) ||
-    state.chillyWizzyReaction || state.jetpackReaction || state.magnetRedirectPending);
+    state.chillyWizzyReaction || state.jetpackReaction || state.magnetRedirectPending || _paInterjection);
   const canUseStudentAction = isExamTurns && isMyTurn && !studentTapped && !targetingMode && !pendingReaction;
   const canUseItem = isExamTurns && isMyTurn && !state.you.itemUsedThisRound && !targetingMode && !pendingReaction;
 
@@ -15990,6 +16237,7 @@ function renderHand(state) {
     const $card = document.createElement('div');
     $card.className = 'hand-card';
     $card.draggable = false; // prevent native browser drag ghost
+    $card.dataset.cardIndex = idx;
     $card.style.backgroundImage = `url("${imgPath}")`;
 
     // ── Student-pick mode ──────────────────────────────────────────────
@@ -16939,7 +17187,8 @@ function renderHand(state) {
     const mmCostActive = lastState && lastState.magicModifierCost !== null && lastState.magicModifierCost !== undefined;
     const mcp = lastState ? (lastState.you.manaCrystalPenalty || 0) : 0;
     const royaltyInc = lastState ? (lastState.you.royaltyStacks || 0) * 2 : 0;
-    if (card.type === 'Spell' && (scr > 0 || mcr > 0 || card.chillyWizzyRevealed || showGrimoire || mmCostActive || mcp > 0 || royaltyInc > 0)) {
+    const corgiInc = lastState ? (lastState.you.corgiPenalty || 0) : 0;
+    if (card.type === 'Spell' && (scr > 0 || mcr > 0 || card.chillyWizzyRevealed || showGrimoire || mmCostActive || mcp > 0 || royaltyInc > 0 || corgiInc > 0)) {
       const base = card.cost || 0;
       const $costBadge = document.createElement('span');
       if (mmCostActive) {
@@ -16965,9 +17214,9 @@ function renderHand(state) {
       } else {
         let effective;
         if (showGrimoire) {
-          effective = mcp + royaltyInc; // Grimoire sets base to 0, Crystal + Royalty add on top
+          effective = mcp + royaltyInc + corgiInc; // Grimoire sets base to 0, penalties add on top
         } else {
-          effective = Math.max(0, base + mcp + royaltyInc - scr - mcr);
+          effective = Math.max(0, base + mcp + royaltyInc + corgiInc - scr - mcr);
           if (card.chillyWizzyRevealed) effective = Math.max(0, effective - 3);
         }
         if (effective !== base) {
@@ -17033,8 +17282,8 @@ function renderHand(state) {
       $card.appendChild($stamp);
     }
 
-    // Familiar cost reduction badge (The Transfer Student + Great King Trex + Angler Angel during prep + Mine Cart + Royalty)
-    if (card.type === 'Familiar' && (fcr > 0 || activePcr > 0 || mcr > 0 || card.cost === -1 || royaltyInc > 0)) {
+    // Familiar cost reduction badge (The Transfer Student + Great King Trex + Angler Angel during prep + Mine Cart + Royalty + Royal Corgi)
+    if (card.type === 'Familiar' && (fcr > 0 || activePcr > 0 || mcr > 0 || card.cost === -1 || royaltyInc > 0 || corgiInc > 0)) {
       const base = card.cost === -1 ? -1 : (card.cost || 0);
       const $costBadge = document.createElement('span');
       if (base === -1) {
@@ -17046,7 +17295,7 @@ function renderHand(state) {
           const trex = (state.you.trexReduction) || 0;
           effectiveFcr = Math.max(0, effectiveFcr - trex);
         }
-        const reduced = Math.max(0, base + royaltyInc - effectiveFcr - activePcr - mcr);
+        const reduced = Math.max(0, base + royaltyInc + corgiInc - effectiveFcr - activePcr - mcr);
         const cssClass = reduced > base ? ' familiar-cost-increased' : (reduced < base ? ' familiar-cost-reduced' : '');
         $costBadge.className = 'familiar-cost-badge' + cssClass;
         if (reduced !== base) {
@@ -17058,11 +17307,11 @@ function renderHand(state) {
       $card.appendChild($costBadge);
     }
 
-    // Equip/Item cost badge (Angler Angel during prep + Mine Cart + Royalty + Blueprints + Sinister Idol)
+    // Equip/Item cost badge (Angler Angel during prep + Mine Cart + Royalty + Royal Corgi + Blueprints + Sinister Idol)
     const idolPenalty = (card.type === 'Item' && lastState) ? (lastState.you.sinisterIdolPenalty || 0) : 0;
-    if ((card.type === 'Equip' || card.type === 'Item') && (activePcr > 0 || mcr > 0 || royaltyInc > 0 || card.blueprintRevealed || idolPenalty > 0)) {
+    if ((card.type === 'Equip' || card.type === 'Item') && (activePcr > 0 || mcr > 0 || royaltyInc > 0 || corgiInc > 0 || card.blueprintRevealed || idolPenalty > 0)) {
       const base = card.blueprintRevealed ? (card.originalCost !== undefined ? card.originalCost : card.cost || 0) : (card.cost || 0);
-      const reduced = card.blueprintRevealed ? 0 : Math.max(0, base + royaltyInc + idolPenalty - activePcr - mcr);
+      const reduced = card.blueprintRevealed ? 0 : Math.max(0, base + royaltyInc + corgiInc + idolPenalty - activePcr - mcr);
       const cssClass = reduced > base ? ' familiar-cost-increased' : (reduced < base ? ' familiar-cost-reduced' : '');
       const $costBadge = document.createElement('span');
       $costBadge.className = 'familiar-cost-badge' + cssClass;
@@ -17209,10 +17458,9 @@ function renderHand(state) {
   }
 
   const inSnarePhase = isExam && state.examSubPhase === 'snare-prep';
-  const inReactionPhase = !!(state.pendingPriceTag || state.pendingElixir || state.pendingAnkh ||
-    state.pendingPunchInTheBox || state.pendingWingedCamera || state.pendingSwordBreakingRock ||
-    state.pendingWeakeningCrystal || state.pendingBarbarianSword);
-  $handArea.classList.toggle('active-turn', isMyTurn && !inSnarePhase && !inReactionPhase);
+  const _activeId = inSnarePhase ? null : getActivePlayerId(state);
+  $handArea.classList.toggle('active-turn', _activeId === state.you.id);
+  $handArea.classList.toggle('turn-owner', isMyTurn && !inSnarePhase);
 
   // Show/hide hand controls (only when hand has 2+ cards)
   const $controls = document.querySelector('.hand-controls');
@@ -17403,6 +17651,7 @@ document.addEventListener('mouseup', (e) => {
 const _activeFishRevives = new Set(); // "playerId:familiarIndex" strings
 
 let myPrevFamiliarCount = 0;
+let myPrevFamiliarShape = ''; // tracks which slots are occupied vs null
 let prevFieldSpellCounts = {}; // { playerId: count } — detect new field spell placements
 let myFamLeftEls = [];
 let myFamRightEls = [];
@@ -17418,10 +17667,13 @@ function renderMyBoard(state) {
   const isMyTurn = state.currentTurnId === you.id;
   const _spiderPassiveDuringSnare2 = state.snareReaction && state.pendingActivation
     && (state.pendingActivation.effectType === 'crimson-passive' || state.pendingActivation.effectType === 'diamond-passive' || state.pendingActivation.effectType === 'letter-of-lies-pick');
+  const _paInterjection2 = state.pendingActivation && state.pendingActivation.playerId !== state.you.id
+    && !(state.pendingActivation.gerrymanderPlayerId === state.you.id)
+    && state.currentTurnId === state.you.id;
   const pendingReaction = !!(state.pendingPriceTag || state.pendingElixir || state.pendingAnkh ||
     state.pendingPunchInTheBox || state.pendingWingedCamera || state.pendingSwordBreakingRock ||
     state.pendingWeakeningCrystal || state.pendingBarbarianSword || (state.snareReaction && !_spiderPassiveDuringSnare2) ||
-    state.chillyWizzyReaction || state.jetpackReaction || state.magnetRedirectPending);
+    state.chillyWizzyReaction || state.jetpackReaction || state.magnetRedirectPending || _paInterjection2);
 
   // ── Student slot ─────────────────────────────────────────────────────
   const studentDead = you.studentDead || false;
@@ -18066,8 +18318,9 @@ function renderMyBoard(state) {
     $studentSlot.classList.add('ff-spell-target-highlight');
   }
 
-  // ── Familiars (stable DOM — rebuild when count changes) ─────────
-  if (familiars.length !== myPrevFamiliarCount) {
+  // ── Familiars (stable DOM — rebuild when slot layout changes) ─────────
+  const famShape = familiars.map(f => f ? '1' : '0').join('');
+  if (familiars.length !== myPrevFamiliarCount || famShape !== myPrevFamiliarShape) {
     $famLeft.innerHTML = '';
     $famRight.innerHTML = '';
     myFamLeftEls = [];
@@ -18146,6 +18399,7 @@ function renderMyBoard(state) {
       }
     });
     myPrevFamiliarCount = familiars.length;
+    myPrevFamiliarShape = famShape;
   }
 
   // Update classes on existing familiar elements
@@ -18156,16 +18410,15 @@ function renderMyBoard(state) {
 
     // Refresh card image (handles in-place swaps like Pengu)
     const card = familiars[idx];
-    if (card) {
-      const newImg = `url("${cardImg(card)}")`;
-      if (el.style.backgroundImage !== newImg) {
-        el.style.backgroundImage = newImg;
-        setZoomable(el, cardImg(card));
-      }
-      el.classList.toggle('summoned-student', !!card.summoned);
-      el.classList.toggle('illusion-tint', !!card.illusionCopy);
+    if (!card) return; // null slot (dead/removed familiar) — no interaction needed
+    const newImg = `url("${cardImg(card)}")`;
+    if (el.style.backgroundImage !== newImg) {
+      el.style.backgroundImage = newImg;
+      setZoomable(el, cardImg(card));
     }
-    if (card && card.currentHp != null) {
+    el.classList.toggle('summoned-student', !!card.summoned);
+    el.classList.toggle('illusion-tint', !!card.illusionCopy);
+    if (card.currentHp != null) {
       let $hp = el.querySelector('.hp-badge');
       if (!$hp) { $hp = document.createElement('span'); $hp.className = 'hp-badge'; el.appendChild($hp); }
       $hp.textContent = card.currentHp;
@@ -19569,6 +19822,130 @@ function showNewRoundPopup(roundNum) {
   fadeInPopup('new-round-popup', `🔄 Round ${roundNum}`, 2500);
 }
 
+// ── Turn Announcement ──────────────────────────────────────────────────────
+let _lastAnnouncedTurnId = null;
+let _lastAnnouncedSubPhase = null;
+
+function updateTurnAnnouncement(state) {
+  if (state.phase !== 'exam' || state.examSubPhase !== 'turns' || state.gameOver) {
+    _lastAnnouncedSubPhase = state.examSubPhase;
+    return;
+  }
+  const turnId = state.currentTurnId;
+  // Announce when: turn player changed, OR we just entered 'turns' sub-phase (first turn of a round)
+  const subPhaseJustChanged = _lastAnnouncedSubPhase !== 'turns';
+  if (turnId && (turnId !== _lastAnnouncedTurnId || subPhaseJustChanged)) {
+    _lastAnnouncedTurnId = turnId;
+    _lastAnnouncedSubPhase = 'turns';
+    // Remove any lingering turn announcements
+    document.querySelectorAll('.turn-announcement-popup').forEach(el => el.remove());
+    const isMe = turnId === state.you.id;
+    const turnPlayerName = isMe
+      ? null
+      : (state.others || []).find(o => o.id === turnId)?.name || null;
+    if (isMe) {
+      fadeInPopup('turn-announcement-popup turn-announcement-self', '⭐ Your Turn!', 2000);
+    } else if (turnPlayerName) {
+      fadeInPopup('turn-announcement-popup', `${turnPlayerName}'s Turn`, 2000);
+    }
+  }
+  _lastAnnouncedSubPhase = state.examSubPhase;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TURN TIMER DISPLAY
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _turnTimerInterval = null;
+
+function updateTurnTimerDisplay(state) {
+  const tt = state.turnTimer;
+  const spt = state.snarePrepTimer;
+  const spht = state.subPhaseTimer;
+  const ijt = state.interjectionTimer;
+
+  // If this player is the interjecting player, show their interjection timer instead
+  const myInterjection = ijt && ijt.playerId === state.you.id;
+  const activeTimer = myInterjection ? ijt : (tt || spt || spht);
+
+  if (!activeTimer || !state.turnTimerEnabled) {
+    $turnTimerDisplay.classList.add('hidden');
+    $turnTimerDisplay.classList.remove('timer-done');
+    if (_turnTimerInterval) { clearInterval(_turnTimerInterval); _turnTimerInterval = null; }
+    return;
+  }
+
+  $turnTimerDisplay.classList.remove('hidden');
+
+  // Determine if this player is already done with the current phase
+  let isDone = false;
+  if (!myInterjection) {
+    if (spt && !tt) isDone = !!state.you.snareReady;
+    if (spht && !tt && !spt) {
+      if (state.examSubPhase === 'harpy-guard') isDone = !!state.you.harpyGuardReady;
+      else if (state.examSubPhase === 'magic-modifier-discard') isDone = !!state.you.magicModifierReady;
+      else if (state.examSubPhase === 'buffoon-pick') {
+        isDone = !(state.pendingActivation && state.pendingActivation.playerId === state.you.id
+          && state.pendingActivation.effectType === 'buffoon-disable-proctor');
+      }
+    }
+    // Turn timer paused = not our decision right now
+    if (tt && tt.paused && tt.playerId === state.you.id) isDone = true;
+  }
+  $turnTimerDisplay.classList.toggle('timer-done', isDone);
+
+  // Normalize timer state for the tick function
+  if (myInterjection) {
+    $turnTimerDisplay._timerState = {
+      startedAt: ijt.startedAt,
+      elapsed: 0,
+      duration: ijt.duration,
+      paused: false,
+    };
+  } else if (tt) {
+    $turnTimerDisplay._timerState = tt;
+  } else {
+    const source = spt || spht;
+    $turnTimerDisplay._timerState = {
+      startedAt: source.startedAt,
+      elapsed: 0,
+      duration: source.duration,
+      paused: false,
+    };
+  }
+
+  if (!_turnTimerInterval) {
+    _turnTimerInterval = setInterval(() => _tickTurnTimer(), 200);
+  }
+  _tickTurnTimer();
+}
+
+function _tickTurnTimer() {
+  const tt = $turnTimerDisplay._timerState;
+  if (!tt) return;
+
+  let remaining;
+  if (tt.paused) {
+    remaining = tt.duration - tt.elapsed;
+  } else {
+    const elapsed = tt.elapsed + (Date.now() - tt.startedAt);
+    remaining = Math.max(0, tt.duration - elapsed);
+  }
+
+  const totalSecs = Math.ceil(remaining / 1000);
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  $turnTimerText.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+  const pct = Math.max(0, remaining / tt.duration) * 100;
+  $turnTimerBarFill.style.width = pct + '%';
+
+  // Low time warning (< 30 seconds)
+  const isLow = remaining < 30000 && remaining > 0;
+  $turnTimerDisplay.classList.toggle('timer-low', isLow);
+  $turnTimerDisplay.classList.toggle('timer-paused', !!tt.paused);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  ACTIVE SPELL
 // ═══════════════════════════════════════════════════════════════════════════
@@ -19689,10 +20066,15 @@ function hideBanner() {
 
 function updateBanner(state) {
   if (state.phase === 'student-pick') {
-    const text = state.you.ready
-      ? 'Waiting for other players to choose their student…'
-      : '✨ Choose one of your two students (highlighted cards)';
-    showBanner(text, 0);
+    if (state.you.ready) {
+      const waiting = (state.others || []).filter(o => !o.ready).map(o => o.name);
+      const text = waiting.length > 0
+        ? `Waiting for ${waiting.join(', ')} to choose their student…`
+        : 'Waiting for other players to choose their student…';
+      showBanner(text, 0);
+    } else {
+      showBanner('✨ Choose one of your two students (highlighted cards)', 0);
+    }
   } else if (state.phase === 'preparation') {
     if (!startingPopupShown && state.startingPlayerName) {
       startingPopupShown = true;
@@ -19732,21 +20114,35 @@ function updateBanner(state) {
   } else if (state.phase === 'exam') {
     if (state.examSubPhase === 'buffoon-pick') {
       const isBuffoon = state.pendingActivation && state.pendingActivation.playerId === state.you.id;
-      const text = isBuffoon
-        ? '🃏 Choose a Proctor to permanently disable!'
-        : '🃏 Waiting for The Buffoon to disable a Proctor…';
-      showBanner(text, 0);
+      if (isBuffoon) {
+        showBanner('🃏 Choose a Proctor to permanently disable!', 0);
+      } else {
+        const buffoonName = state.pendingActivation
+          ? ((state.others || []).find(o => o.id === state.pendingActivation.playerId)?.name || 'The Buffoon')
+          : 'The Buffoon';
+        showBanner(`🃏 Waiting for ${buffoonName} to disable a Proctor…`, 0);
+      }
     } else if (state.examSubPhase === 'snare-prep') {
-      const text = state.you.snareReady
-        ? 'Waiting for other players to prepare snares…'
-        : '🪤 Prepare a Snare! (select a Snare card or skip)';
-      showBanner(text, 0);
+      if (state.you.snareReady) {
+        const waiting = (state.others || []).filter(o => !o.snareReady).map(o => o.name);
+        const text = waiting.length > 0
+          ? `Waiting for ${waiting.join(', ')} to prepare snares…`
+          : 'Waiting for other players to prepare snares…';
+        showBanner(text, 0);
+      } else {
+        showBanner('🪤 Prepare a Snare! (select a Snare card or skip)', 0);
+      }
     } else if (state.examSubPhase === 'magic-modifier-discard') {
       const isMmOwner = !state.you.magicModifierReady;
-      const text = isMmOwner
-        ? '🔮 Magic Modifier — Select any number of cards to discard, then confirm!'
-        : '🔮 Waiting for Magic Modifier owner(s) to set spell costs…';
-      showBanner(text, 0);
+      if (isMmOwner) {
+        showBanner('🔮 Magic Modifier — Select any number of cards to discard, then confirm!', 0);
+      } else {
+        const waiting = (state.others || []).filter(o => !o.magicModifierReady).map(o => o.name);
+        const text = waiting.length > 0
+          ? `🔮 Waiting for ${waiting.join(', ')} to set spell costs…`
+          : '🔮 Waiting for Magic Modifier owner(s) to set spell costs…';
+        showBanner(text, 0);
+      }
     } else {
       hideBanner();
     }
@@ -19801,6 +20197,7 @@ function renderProctors(state) {
     const name = $card.dataset.proctorName;
     const isDistracted = distractedNames.has(name);
     const isDisabled = disabledNames.has(name);
+    const myApproval = (approvals[name] || []).includes(state.you.id);
 
     // Remove old stamps
     $card.querySelectorAll('.proctor-stamp').forEach(s => s.remove());
@@ -19808,6 +20205,9 @@ function renderProctors(state) {
     $card.querySelectorAll('.proctor-distract-badge').forEach(s => s.remove());
     // Remove old disabled overlay
     $card.querySelectorAll('.proctor-disabled-badge').forEach(s => s.remove());
+
+    // Highlight if this player has this proctor's approval
+    $card.classList.toggle('proctor-my-approval', myApproval && !isDisabled);
 
     // Disabled state (The Buffoon — permanent)
     $card.classList.toggle('proctor-disabled', isDisabled);
@@ -20131,6 +20531,8 @@ export function initGame(state, myId) {
   stolenSnareShown = false;
   lastExamRound = 0;
   myPrevFamiliarCount = 0;
+  myPrevFamiliarShape = '';
+
   myFamLeftEls = [];
   myFamRightEls = [];
   prevOpponentTaps.clear();
@@ -20167,8 +20569,11 @@ export function resetGame() {
   stolenSnareShown = false;
   lastExamRound = 0;
   myPrevFamiliarCount = 0;
+  myPrevFamiliarShape = '';
+
   myFamLeftEls = [];
   myFamRightEls = [];
+  _lastFamiliarPA = null;
   prevOpponentTaps.clear();
   lastState = null;
   proctorsRendered = false;
@@ -20180,6 +20585,8 @@ export function resetGame() {
   if (spellDismissTimer) { clearTimeout(spellDismissTimer); spellDismissTimer = null; }
   if (spellFadeTimer) { clearTimeout(spellFadeTimer); spellFadeTimer = null; }
   if (bannerFadeTimer) { clearTimeout(bannerFadeTimer); bannerFadeTimer = null; }
+  if (_turnTimerInterval) { clearInterval(_turnTimerInterval); _turnTimerInterval = null; }
+  $turnTimerDisplay.classList.add('hidden');
   stopFireworks();
   hideSnareWaitingBanner();
   hideEnergyCoreWaitingBanner();
@@ -20221,7 +20628,7 @@ export function resetGame() {
   $gameOverOverlay.classList.add('hidden');
   hideZoom();
 
-  document.querySelectorAll('.starting-player-popup, .exam-phase-popup, .new-round-popup, .win-popup').forEach(el => el.remove());
+  document.querySelectorAll('.starting-player-popup, .exam-phase-popup, .new-round-popup, .turn-announcement-popup, .win-popup').forEach(el => el.remove());
 
   $banner.classList.add('hidden');
   $banner.classList.remove('preparation-popup', 'banner-fade-out');
@@ -20259,6 +20666,246 @@ export function resetGame() {
     '.shard-draw-preview, .shard-draw-fly, ' +
     '.scoc-sparkle, .scoc-crown-rise, .scoc-proctor-burst'
   ).forEach(el => el.remove());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  FAMILIAR RAM ANIMATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _lastFamiliarPA = null; // legacy — kept for resetGame cleanup
+
+/**
+ * Find a board element by owner/type/index.
+ * Returns null if not found.
+ */
+function _findBoardEl(state, playerId, type, familiarIndex) {
+  if (playerId === state.you.id) {
+    if (type === 'student') return $studentSlot;
+    if (type === 'familiar') {
+      const all = [...(myFamLeftEls || []), ...(myFamRightEls || [])];
+      const match = all.find(f => f.idx === familiarIndex);
+      return match ? match.el : null;
+    }
+  } else {
+    if (type === 'student') {
+      return document.querySelector(`[data-owner-id="${playerId}"][data-target-type="student"]`);
+    }
+    if (type === 'familiar') {
+      return document.querySelector(`[data-owner-id="${playerId}"][data-target-type="familiar"][data-familiar-index="${familiarIndex}"]`);
+    }
+  }
+  return null;
+}
+
+/**
+ * Find the source element for a ram event.
+ * Handles familiar sources AND student sources.
+ */
+function _findRamSourceEl(state, evt) {
+  if (evt.sourceType === 'student') {
+    if (evt.sourcePlayerId === state.you.id) return $studentSlot;
+    return document.querySelector(`[data-owner-id="${evt.sourcePlayerId}"][data-target-type="student"]`);
+  }
+  // Familiar or summoned-student (both stored in familiar slots)
+  return _findBoardEl(state, evt.sourcePlayerId, 'familiar', evt.sourceFamiliarIndex);
+}
+
+/**
+ * Capture floating number positions from current DOM before re-render.
+ * Returns array of { evt, left, top } for later use.
+ */
+function _captureEventPositions(events, state) {
+  if (!events || events.length === 0) return [];
+  const captured = [];
+  const targetDelay = new Map();
+  for (const evt of events) {
+    const el = _findBoardEl(state, evt.playerId, evt.type, evt.familiarIndex);
+    if (!el) continue;
+    const rect = el.getBoundingClientRect();
+    const key = `${evt.playerId}-${evt.type}-${evt.familiarIndex ?? ''}`;
+    const delay = targetDelay.get(key) || 0;
+    targetDelay.set(key, delay + 180);
+    captured.push({ evt, left: rect.left + rect.width / 2, top: rect.top, delay });
+  }
+  return captured;
+}
+
+/**
+ * Show floating damage numbers from pre-captured positions.
+ */
+function _showCapturedDamage(captured) {
+  for (const { evt, left, top, delay } of captured) {
+    setTimeout(() => {
+      const $dmg = document.createElement('div');
+      $dmg.className = 'floating-damage';
+      if (evt.isPoison) $dmg.classList.add('floating-damage-poison');
+      if (evt.isSpawnMother) $dmg.classList.add('floating-damage-spawn-mother');
+      if (evt.isImmune) $dmg.classList.add('floating-damage-immune');
+      $dmg.textContent = evt.isImmune ? '0' : `-${evt.damage}`;
+      $dmg.style.left = `${left}px`;
+      $dmg.style.top = `${top}px`;
+      document.body.appendChild($dmg);
+      $dmg.addEventListener('animationend', () => $dmg.remove());
+      setTimeout(() => { if ($dmg.parentNode) $dmg.remove(); }, 2000);
+    }, delay);
+  }
+}
+
+/**
+ * Show floating heal numbers from pre-captured positions.
+ */
+function _showCapturedHeal(captured) {
+  for (const { evt, left, top } of captured) {
+    const $heal = document.createElement('div');
+    $heal.className = 'floating-heal';
+    $heal.textContent = `+${evt.amount}`;
+    $heal.style.left = `${left}px`;
+    $heal.style.top = `${top}px`;
+    document.body.appendChild($heal);
+    $heal.addEventListener('animationend', () => $heal.remove());
+    setTimeout(() => { if ($heal.parentNode) $heal.remove(); }, 2000);
+  }
+}
+
+/**
+ * Show the ram animation: source entity flies to each target and back.
+ * For multi-target, clones are created per target.
+ * Hides the source element during the animation.
+ */
+const _activeRamSources = new Set(); // 'playerId:type:index' keys of hidden sources
+
+function _showRamClones(sourceEl, targets, state) {
+  if (!sourceEl) return;
+  const sourceRect = sourceEl.getBoundingClientRect();
+  const sourceImg = sourceEl.style.backgroundImage;
+
+  // Hide the original source immediately
+  sourceEl.classList.add('ram-source-hidden');
+
+  for (const target of targets) {
+    const targetEl = _findBoardEl(state, target.playerId, target.type, target.familiarIndex);
+    if (!targetEl) continue;
+    const targetRect = targetEl.getBoundingClientRect();
+
+    // Delta from source center to target center
+    const dx = (targetRect.left + targetRect.width / 2) - (sourceRect.left + sourceRect.width / 2);
+    const dy = (targetRect.top + targetRect.height / 2) - (sourceRect.top + sourceRect.height / 2);
+
+    const $clone = document.createElement('div');
+    $clone.className = 'familiar-ram-clone';
+    $clone.style.backgroundImage = sourceImg;
+    $clone.style.left = sourceRect.left + 'px';
+    $clone.style.top = sourceRect.top + 'px';
+    $clone.style.width = sourceRect.width + 'px';
+    $clone.style.height = sourceRect.height + 'px';
+    document.body.appendChild($clone);
+
+    // Phase 1: fly to target (0.2s ease-in)
+    requestAnimationFrame(() => {
+      $clone.style.transition = 'transform 0.2s ease-in';
+      $clone.style.transform = `translate(${dx}px, ${dy}px) scale(1.1)`;
+    });
+
+    // Phase 2: at impact, flash the target
+    setTimeout(() => {
+      if (targetEl) targetEl.classList.add('ram-impact');
+      setTimeout(() => { if (targetEl) targetEl.classList.remove('ram-impact'); }, 200);
+      // Return to source (0.2s ease-out)
+      $clone.style.transition = 'transform 0.2s ease-out';
+      $clone.style.transform = 'translate(0, 0) scale(1)';
+    }, 200);
+
+    // Phase 3: remove clone after return
+    setTimeout(() => { if ($clone.parentNode) $clone.remove(); }, 420);
+  }
+}
+
+/**
+ * Re-apply hidden class to source elements after DOM re-render.
+ * New DOM elements don't have the class, so we re-apply using _activeRamSources.
+ */
+function _applyRamSourceHiding() {
+  if (_activeRamSources.size === 0) return;
+  const state = lastState;
+  if (!state) return;
+  for (const key of _activeRamSources) {
+    const [pid, type, idx] = key.split(':');
+    let el;
+    if (type === 'student') {
+      el = _findBoardEl(state, pid, 'student', -1);
+    } else {
+      el = _findBoardEl(state, pid, 'familiar', parseInt(idx));
+    }
+    if (el) el.classList.add('ram-source-hidden');
+  }
+}
+
+/**
+ * Main handler: check for server-sent ram events, animate, delay numbers.
+ * Called from updateGameState BEFORE re-render.
+ * Returns true if ram animation was triggered (caller should skip showDamageNumbers/showHealNumbers).
+ */
+function handleFamiliarRamAnimation(state) {
+  const ramEvents = state.ramEvents;
+  if (!ramEvents || ramEvents.length === 0) return false;
+
+  // Show ram clones for each event
+  let anyRam = false;
+  for (const evt of ramEvents) {
+    const sourceEl = _findRamSourceEl(state, evt);
+    if (!sourceEl || !evt.targets || evt.targets.length === 0) continue;
+    _showRamClones(sourceEl, evt.targets, state);
+    anyRam = true;
+
+    // Track hidden source so we can re-hide after re-render
+    const key = evt.sourceType === 'student'
+      ? `${evt.sourcePlayerId}:student:-1`
+      : `${evt.sourcePlayerId}:familiar:${evt.sourceFamiliarIndex}`;
+    _activeRamSources.add(key);
+    // Auto-restore after animation completes — show untapped, then animate tap
+    setTimeout(() => {
+      _activeRamSources.delete(key);
+      const el = _findRamSourceEl(state, evt);
+      if (!el) return;
+      // Unhide and briefly show untapped
+      el.classList.remove('ram-source-hidden');
+      const wasTapped = el.classList.contains('tapped');
+      if (wasTapped) {
+        el.classList.remove('tapped');
+        // Force reflow so the browser registers the untapped state
+        void el.offsetWidth;
+        // Add transition for smooth tap rotation
+        el.style.transition = 'transform 0.15s ease, filter 0.15s ease';
+        requestAnimationFrame(() => {
+          el.classList.add('tapped');
+          // Clean up inline transition after animation
+          setTimeout(() => { el.style.transition = ''; }, 200);
+        });
+      }
+    }, 420);
+  }
+
+  if (!anyRam) return false;
+
+  // Schedule post-render re-hiding (runs after updateGameState re-renders the DOM)
+  setTimeout(() => _applyRamSourceHiding(), 0);
+
+  // Check if there are damage/heal events to delay
+  const hasDmgHeal = (state.damageEvents && state.damageEvents.length > 0)
+                   || (state.healEvents && state.healEvents.length > 0);
+  if (!hasDmgHeal) return false; // ram plays but no numbers to delay
+
+  // Capture positions for delayed floating numbers from OLD DOM
+  const capturedDmg = _captureEventPositions(state.damageEvents, state);
+  const capturedHeal = _captureEventPositions(state.healEvents, state);
+
+  // Delay floating numbers until impact (200ms)
+  setTimeout(() => {
+    _showCapturedDamage(capturedDmg);
+    _showCapturedHeal(capturedHeal);
+  }, 200);
+
+  return true; // caller should skip showDamageNumbers/showHealNumbers
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -25413,6 +26060,14 @@ export function updateGameState(state, myId) {
   if (discardMode && discardMode.cardIndex >= state.you.hand.length) {
     discardMode = null;
   }
+  // Clear discard mode if it's no longer our turn (timeout auto-advanced)
+  if (discardMode && !discardMode.elixirMode && !discardMode.priceTagPayMode) {
+    const isMyTurn = state.currentTurnId === state.you.id;
+    const isPlayPhase = (state.phase === 'preparation') || (state.phase === 'exam' && state.examSubPhase === 'turns');
+    if (!isMyTurn || !isPlayPhase) {
+      discardMode = null;
+    }
+  }
 
   // Magic Modifier mode management
   if (state.examSubPhase === 'magic-modifier-discard' && !state.you.magicModifierReady) {
@@ -25422,8 +26077,13 @@ export function updateGameState(state, myId) {
   }
 
   // Show damage/heal/jaws numbers BEFORE re-rendering so old DOM elements still exist
-  showDamageNumbers(state);
-  showHealNumbers(state);
+  // ── Familiar Ram Animation: delay damage/heal numbers until impact ──
+  const _ramResult = handleFamiliarRamAnimation(state);
+  if (!_ramResult) {
+    showDamageNumbers(state);
+    showHealNumbers(state);
+  }
+  // else: ram animation handles delayed damage/heal display
   showOrcSkullAnimation(state);
   showPortalAnimation(state);
   showJawsAnimations(state);
@@ -25482,7 +26142,8 @@ export function updateGameState(state, myId) {
       }
     } else if (pa.playerId === state.you.id) {
       if (!targetingMode || targetingMode.effectType !== 'awaiting-opponent') {
-        targetingMode = { effectType: 'awaiting-opponent', canCancel: false };
+        const _wn = (state.others || []).find(o => o.id === pa.discardPlayerId)?.name || 'opponent';
+        targetingMode = { effectType: 'awaiting-opponent', canCancel: false, waitingLabel: `Waiting for ${_wn} to discard...` };
       }
     } else {
       targetingMode = null;
@@ -25495,7 +26156,8 @@ export function updateGameState(state, myId) {
       }
     } else if (pa.recipientPlayerId === state.you.id) {
       if (!targetingMode || targetingMode.effectType !== 'awaiting-opponent') {
-        targetingMode = { effectType: 'awaiting-opponent', canCancel: false };
+        const _wn = (state.others || []).find(o => o.id === pa.givePlayerId)?.name || 'opponent';
+        targetingMode = { effectType: 'awaiting-opponent', canCancel: false, waitingLabel: `Waiting for ${_wn} to give a card...` };
       }
     } else {
       targetingMode = null;
@@ -25508,7 +26170,8 @@ export function updateGameState(state, myId) {
       }
     } else if (pa.recipientPlayerId === state.you.id) {
       if (!targetingMode || targetingMode.effectType !== 'awaiting-opponent') {
-        targetingMode = { effectType: 'awaiting-opponent', canCancel: false };
+        const _wn = (state.others || []).find(o => o.id === pa.givePlayerId)?.name || 'opponent';
+        targetingMode = { effectType: 'awaiting-opponent', canCancel: false, waitingLabel: `Waiting for ${_wn} to give cards...` };
       }
     } else {
       targetingMode = null;
@@ -25522,7 +26185,8 @@ export function updateGameState(state, myId) {
       }
     } else if (pa.playerId === state.you.id) {
       if (!targetingMode || targetingMode.effectType !== 'mage-awaiting-pick') {
-        targetingMode = { effectType: 'mage-awaiting-pick', canCancel: true };
+        const _wn = (state.others || []).find(o => o.id === pa.pickPlayerId)?.name || 'opponent';
+        targetingMode = { effectType: 'mage-awaiting-pick', canCancel: true, waitingPlayerName: _wn };
       }
     } else {
       targetingMode = null;
@@ -25536,7 +26200,8 @@ export function updateGameState(state, myId) {
       }
     } else if (pa.playerId === state.you.id) {
       if (!targetingMode || targetingMode.effectType !== 'chaos-magic-awaiting') {
-        targetingMode = { effectType: 'chaos-magic-awaiting', canCancel: false };
+        const _wn = (state.others || []).find(o => o.id === pa.pickPlayerId)?.name || 'opponent';
+        targetingMode = { effectType: 'chaos-magic-awaiting', canCancel: false, waitingPlayerName: _wn };
       }
     } else {
       targetingMode = null;
@@ -26964,13 +27629,14 @@ export function updateGameState(state, myId) {
           && (_pa.effectType === 'diamond-passive' || _pa.effectType === 'potion-of-greed-pick'
               || _pa.effectType === 'crimson-passive' || _pa.effectType === 'surprised-lion-passive'
               || _pa.effectType === 'reflection-pick' || _pa.effectType === 'reverse-prism-pick')) {
+        const _wn = (state.others || []).find(o => o.id === _pa.playerId)?.name || 'opponent';
         const _waitLabels = {
-          'diamond-passive': '💎 Waiting for opponent to retrieve cards (Diamond Spider)...',
-          'potion-of-greed-pick': '🧪 Waiting for opponent to retrieve cards (Potion of Greed)...',
-          'crimson-passive': '🕷️ Waiting for opponent to pick a target (Crimson Skull Spider)...',
-          'surprised-lion-passive': '🦁 Waiting for opponent to pick a target (Surprised Lion)...',
-          'reflection-pick': '🪞 Waiting for opponent to redirect a tap (Reflection)...',
-          'reverse-prism-pick': '🔮 Waiting for opponent to pick a target (Reverse Prism)...',
+          'diamond-passive': `💎 Waiting for ${_wn} to retrieve cards (Diamond Spider)...`,
+          'potion-of-greed-pick': `🧪 Waiting for ${_wn} to retrieve cards (Potion of Greed)...`,
+          'crimson-passive': `🕷️ Waiting for ${_wn} to pick a target (Crimson Skull Spider)...`,
+          'surprised-lion-passive': `🦁 Waiting for ${_wn} to pick a target (Surprised Lion)...`,
+          'reflection-pick': `🪞 Waiting for ${_wn} to redirect a tap (Reflection)...`,
+          'reverse-prism-pick': `🔮 Waiting for ${_wn} to pick a target (Reverse Prism)...`,
         };
         if (!targetingMode || targetingMode.effectType !== 'awaiting-opponent') {
           targetingMode = { effectType: 'awaiting-opponent', canCancel: false, waitingLabel: _waitLabels[_pa.effectType] || 'Waiting for opponent...' };
@@ -27372,6 +28038,7 @@ export function updateGameState(state, myId) {
   renderOpponents(state);
   renderHand(state);
   renderMyBoard(state);
+  processPingEvents(state);
   // Auto-hide oracle pickers if targeting mode cleared or changed
   if (!targetingMode || targetingMode.effectType !== 'oracle-guess') {
     hideOraclePickers();
@@ -27538,6 +28205,8 @@ export function updateGameState(state, myId) {
   updateButtons();
   updateBanner(state);
   updateRoundCounter(state);
+  updateTurnAnnouncement(state);
+  updateTurnTimerDisplay(state);
   updatePlayerBackground(state);
   updateActiveSpell(state);
   updateOracleResult(state);
@@ -28126,7 +28795,8 @@ export function updateGameState(state, myId) {
       }
     } else if (pbp.isActivator) {
       if (!targetingMode || targetingMode.effectType !== 'awaiting-opponent') {
-        targetingMode = { effectType: 'awaiting-opponent', canCancel: false };
+        const names = (pbp.pendingNames || []).join(', ') || 'opponent';
+        targetingMode = { effectType: 'awaiting-opponent', canCancel: false, waitingLabel: `🎁 Waiting for ${names} to pick an Equip…` };
         updateTargetingUI();
       }
     } else {
@@ -28154,7 +28824,7 @@ export function updateGameState(state, myId) {
   } else if (pec && !pec.isMyTurn) {
     // Already confirmed — show waiting banner for remaining opponents
     if (energyCoreShown) hideEnergyCorePicker();
-    showEnergyCoreWaitingBanner(pec.pendingCount);
+    showEnergyCoreWaitingBanner(pec.pendingCount, pec.pendingNames);
   } else {
     if (energyCoreShown) hideEnergyCorePicker();
     hideEnergyCoreWaitingBanner();
@@ -28585,7 +29255,8 @@ export function updateGameState(state, myId) {
     } else if (pmk.phase === 'give-card' && pmk.playerId === state.you.id) {
       // Activator waits for opponent to give
       if (!targetingMode || targetingMode.effectType !== 'master-key-waiting') {
-        targetingMode = { effectType: 'master-key-waiting', canCancel: false };
+        const _wn = (state.others || []).find(o => o.id === pmk.givePlayerId)?.name || 'opponent';
+        targetingMode = { effectType: 'master-key-waiting', canCancel: false, waitingPlayerName: _wn };
         renderHand(state);
         renderOpponents(state);
         renderMyBoard(state);
@@ -28743,7 +29414,7 @@ export function updateGameState(state, myId) {
             updateTargetingUI();
           }
           if (cwr.waitingCount > 0) {
-            showCWWaitingBanner();
+            showCWWaitingBanner(cwr.waitingNames);
           } else {
             hideCWWaitingBanner();
           }
@@ -28752,7 +29423,7 @@ export function updateGameState(state, myId) {
         // Not eligible — show waiting banner
         hideCWPassivePrompt();
         if (cwr.waitingCount > 0) {
-          showCWWaitingBanner();
+          showCWWaitingBanner(cwr.waitingNames);
         } else {
           hideCWWaitingBanner();
         }
@@ -28834,7 +29505,15 @@ export function updateGameState(state, myId) {
     // Selection phase: reaction active, not timed (no startedAt or already past prompt), not my turn
     const equipTriggerWaiting = state.pendingEquipTrigger && state.pendingEquipTrigger.playerId !== state.you.id
       && !(state.pendingEquipTrigger.gerrymanderPlayerId === state.you.id);
-    const selectionWaiting = !timedWaiting && (equipTriggerWaiting || timedReactions.find(r => !isMyTurn(r) && (!r.startedAt || !r.timeoutMs)));
+    // PA interjection: another player has pendingActivation during my turn (Shield of Death/Life, etc.)
+    const paInterjection = !timedWaiting && state.pendingActivation
+      && state.pendingActivation.playerId !== state.you.id
+      && !(state.pendingActivation.gerrymanderPlayerId === state.you.id)
+      && state.currentTurnId === state.you.id
+      && !state.snareReaction; // snare pickers handled separately
+    // Magnet redirect: another player is redirecting during my action
+    const magnetWaiting = !timedWaiting && state.magnetRedirectPending && !state.pendingMagnetRedirect;
+    const selectionWaiting = !timedWaiting && (equipTriggerWaiting || paInterjection || magnetWaiting || timedReactions.find(r => !isMyTurn(r) && (!r.startedAt || !r.timeoutMs)));
 
     // Snare reaction: show same "Waiting for reactions" timed banner for ALL phases
     // (prompting, paying, targeting, flipping) to avoid revealing snare activation to opponents
@@ -28853,22 +29532,16 @@ export function updateGameState(state, myId) {
 
     if (timedWaiting || snareWaitingTimed) {
       const r = timedWaiting || state.snareReaction;
-      // Resolve the currently prompted player's name for snare banners
-      let _snarePromptedName = null;
-      if (snareWaitingTimed && state.snareReaction && state.snareReaction.currentPromptPlayerId) {
-        const cpId = state.snareReaction.currentPromptPlayerId;
-        if (cpId === state.you.id) {
-          _snarePromptedName = null; // shouldn't happen — we'd be prompted, not waiting
-        } else {
-          const other = (state.others || []).find(o => o.id === cpId);
-          _snarePromptedName = other ? other.name : null;
-        }
+      // Resolve remaining player names from snare reaction state
+      let _snarePlayerNames = null;
+      if (snareWaitingTimed && state.snareReaction && state.snareReaction.remainingPlayers) {
+        _snarePlayerNames = state.snareReaction.remainingPlayers.map(p => p.name);
       }
       if (snareWaitingTimed && !timedWaiting) {
         // Snare prompting: delay banner by 500ms to avoid flashes from auto-resolving snares
         const elapsed = r.startedAt ? Date.now() - r.startedAt : Infinity;
         if (elapsed >= 500) {
-          showSnareWaitingBanner(r.startedAt, r.timeoutMs || 10000, _snarePromptedName);
+          showSnareWaitingBanner(r.startedAt, r.timeoutMs || 10000, _snarePlayerNames);
         } else {
           hideSnareWaitingBanner();
           clearTimeout(_snareWaitingDelayTimer);
@@ -28878,14 +29551,12 @@ export function updateGameState(state, myId) {
                 !lastState.snareReaction.activatedPlayerId &&
                 !(lastState.snareReaction.eligibleSnares && lastState.snareReaction.eligibleSnares.length > 0) &&
                 !lastState.snareReaction.isMyTargeting && !lastState.snareReaction.isMyPayment) {
-              // Re-resolve name from latest state
-              let _delayedName = null;
-              if (lastState.snareReaction.currentPromptPlayerId) {
-                const cpId2 = lastState.snareReaction.currentPromptPlayerId;
-                const other2 = (lastState.others || []).find(o => o.id === cpId2);
-                _delayedName = other2 ? other2.name : null;
+              // Re-resolve names from latest state
+              let _delayedNames = null;
+              if (lastState.snareReaction.remainingPlayers) {
+                _delayedNames = lastState.snareReaction.remainingPlayers.map(p => p.name);
               }
-              showSnareWaitingBanner(r.startedAt, r.timeoutMs || 10000, _delayedName);
+              showSnareWaitingBanner(r.startedAt, r.timeoutMs || 10000, _delayedNames);
             }
           }, 500 - elapsed);
         }
@@ -28894,14 +29565,19 @@ export function updateGameState(state, myId) {
         showSnareWaitingBanner(r.startedAt, r.timeoutMs || 10000);
       }
     } else if (selectionWaiting || bluffWaiting || snareWaitingUntimed) {
-      // For snare untimed waiting (paying/targeting), resolve the activating player's name
-      let _snareUntimedName = null;
-      if (snareWaitingUntimed && state.snareReaction && state.snareReaction.activatedPlayerId) {
-        const apId = state.snareReaction.activatedPlayerId;
-        const other = (state.others || []).find(o => o.id === apId);
-        _snareUntimedName = other ? other.name : null;
+      // Resolve the waiting player's name from the best available source
+      let _waitName = null;
+      if (snareWaitingUntimed && state.snareReaction) {
+        _waitName = state.snareReaction.activatedPlayerName || null;
+      } else if (paInterjection && state.pendingActivation) {
+        _waitName = (state.others || []).find(o => o.id === state.pendingActivation.playerId)?.name || null;
+      } else if (magnetWaiting) {
+        const names = (state.magnetRedirectPlayerNames || []).join(', ');
+        _waitName = names || null;
+      } else if (equipTriggerWaiting && state.pendingEquipTrigger) {
+        _waitName = (state.others || []).find(o => o.id === state.pendingEquipTrigger.playerId)?.name || null;
       }
-      showSnareWaitingBannerNoTimer(snareWaitingUntimed ? _snareUntimedName : null);
+      showSnareWaitingBannerNoTimer(_waitName);
     } else {
       hideSnareWaitingBanner();
     }

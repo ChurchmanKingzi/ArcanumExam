@@ -56,7 +56,7 @@ export function activeEffect(student, context) {
  * as any other single player. Summoned students don't count as familiars.
  */
 export function escapeCondition(player, room) {
-  const countFamiliars = (p) => (p.familiars || []).filter(f => !f.summoned).length;
+  const countFamiliars = (p) => (p.familiars || []).filter(f => f && !f.summoned).length;
 
   const myCount = countFamiliars(player);
   if (myCount === 0) return false; // need at least 1

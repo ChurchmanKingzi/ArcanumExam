@@ -17,6 +17,7 @@ export default function skeletonReaper(familiar, context) {
     if (p.left) continue;
     for (let i = 0; i < (p.familiars || []).length; i++) {
       const f = p.familiars[i];
+      if (!f) continue;
       if (f.currentHp <= 0) continue;
       if (pid === selfOwnerId && i === context.familiarIndex) continue;
       otherFamCount++;

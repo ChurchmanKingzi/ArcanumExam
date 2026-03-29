@@ -22,10 +22,10 @@ export function activeEffect(student, context) {
     if (pid === player.id) continue;
     if (p.left) continue;
     if (p.chosenStudent && !p.studentDead) { hasTarget = true; break; }
-    if ((p.familiars || []).some(f => f.currentHp > 0)) { hasTarget = true; break; }
+    if ((p.familiars || []).some(f => f && f.currentHp > 0)) { hasTarget = true; break; }
   }
   // Also check own familiars
-  if (!hasTarget && (player.familiars || []).some(f => f.currentHp > 0)) {
+  if (!hasTarget && (player.familiars || []).some(f => f && f.currentHp > 0)) {
     hasTarget = true;
   }
   if (!hasTarget) return null;

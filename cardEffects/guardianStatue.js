@@ -26,6 +26,7 @@ export default function guardianStatue(familiar, context) {
     // Check familiars
     for (let i = 0; i < (p.familiars || []).length; i++) {
       const f = p.familiars[i];
+      if (!f) continue;
       if (f.currentHp <= 0) continue;
       // Exclude self
       if (pid === selfOwnerId && i === context.familiarIndex) continue;

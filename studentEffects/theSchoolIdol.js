@@ -25,6 +25,7 @@ export function activeEffect(student, context) {
     if (pid === player.id || p.left) continue;
     if (p.chosenStudent?.name === 'The Class Pet' && !p.studentDead) continue; // all familiars immune
     for (const f of (p.familiars || [])) {
+      if (!f) continue;
       if ((f.currentHp || 0) <= 0) continue;
       if (f.summoned) continue;
       // Futuristic Mech (or Clone copying it) is immune to non-damage effects
@@ -52,7 +53,7 @@ export function activeEffect(student, context) {
  */
 export function escapeCondition(player, room) {
   const stolenLiving = (player.familiars || []).filter(f =>
-    f.stolenFrom && f.stolenFrom !== player.id && (f.currentHp || 0) > 0
+    f && f.stolenFrom && f.stolenFrom !== player.id && (f.currentHp || 0) > 0
   );
   return stolenLiving.length >= 2;
 }

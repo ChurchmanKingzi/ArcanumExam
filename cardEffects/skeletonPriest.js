@@ -20,6 +20,7 @@ export default function skeletonPriest(familiar, context) {
     // Tapped familiars
     for (let i = 0; i < (p.familiars || []).length; i++) {
       const f = p.familiars[i];
+      if (!f) continue;
       if (f.currentHp <= 0) continue;
       if (pid === selfOwnerId && i === context.familiarIndex) continue;
       if ((p.tappedFamiliars || []).includes(i)) {

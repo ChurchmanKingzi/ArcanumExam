@@ -27,6 +27,7 @@ export function activeEffect(student, context) {
     }
     // Any player's summoned student equips (including own)
     for (const f of (p.familiars || [])) {
+      if (!f) continue;
       if (f.summoned) {
         stealableCount += (f.equips || []).length;
       }

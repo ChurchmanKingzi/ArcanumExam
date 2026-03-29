@@ -31,7 +31,7 @@ export function activeEffect(student, context) {
  * Win if the would-be survival count (after this round) >= 2.
  */
 export function escapeCondition(player, room) {
-  const livingFamiliars = (player.familiars || []).filter(f => (f.currentHp || 0) > 0).length;
+  const livingFamiliars = (player.familiars || []).filter(f => f && (f.currentHp || 0) > 0).length;
   if (livingFamiliars === 0) return false; // must control at least 1 familiar
   if (player.classPetFamiliarDied) return false; // a familiar died this round — streak breaks
   const wouldBeSurvival = (player.classPetSurvivalRounds || 0) + 1;

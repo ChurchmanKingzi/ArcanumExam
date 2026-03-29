@@ -17,6 +17,6 @@
  * Escape Condition: Control 6 or more living Familiars.
  */
 export function escapeCondition(player, room) {
-  const living = (player.familiars || []).filter(f => (f.currentHp || 0) > 0).length;
+  const living = (player.familiars || []).filter(f => f && (f.currentHp || 0) > 0).length;
   return living >= 6;
 }

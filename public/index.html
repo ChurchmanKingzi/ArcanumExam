@@ -41,6 +41,10 @@
         <h2>Room: <span id="lobby-room-name"></span></h2>
         <div id="lobby-player-list" class="lobby-player-list"></div>
         <p class="lobby-hint">Waiting for host to start…</p>
+        <div id="turn-timer-toggle" class="turn-timer-toggle hidden">
+          <label class="timer-toggle-label">⏱️ Turn Timer</label>
+          <button id="btn-toggle-timer" class="btn-toggle-timer">OFF</button>
+        </div>
         <button id="btn-start" class="btn-primary hidden">Start Game</button>
         <button id="btn-lobby-leave" class="btn-lobby-leave">Leave Room</button>
       </div>
@@ -59,7 +63,10 @@
 
     <!-- Proctors: bottom-left corner -->
     <div id="proctor-area" class="proctor-area">
-      <div class="proctor-label">Proctors</div>
+      <div class="proctor-header">
+        <div class="proctor-label">Proctors</div>
+        <button id="proctor-toggle" class="proctor-toggle" title="Hide Proctors (P)">◀</button>
+      </div>
       <div id="proctor-grid" class="proctor-grid"></div>
     </div>
 
@@ -67,6 +74,10 @@
       <span id="phase-text"></span>
     </div>
 
+    <div id="turn-timer-display" class="turn-timer-display hidden">
+      <div class="turn-timer-bar"><div class="turn-timer-bar-fill"></div></div>
+      <span class="turn-timer-text">2:00</span>
+    </div>
     <button id="btn-leave" class="btn-leave">Leave Game</button>
     <div id="round-counter" class="round-counter hidden">Round <span id="round-number">1</span></div>
     <div id="item-usage-container" class="item-usage-container hidden"></div>

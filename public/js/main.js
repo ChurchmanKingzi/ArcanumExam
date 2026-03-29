@@ -133,6 +133,12 @@ const $avatarPreview    = document.getElementById('avatar-preview');
 const $avatarPreviewText = document.getElementById('avatar-preview-text');
 const $avatarHistory    = document.getElementById('avatar-history');
 const $btnLobbyLeave    = document.getElementById('btn-lobby-leave');
+const $turnTimerToggle  = document.getElementById('turn-timer-toggle');
+const $btnToggleTimer   = document.getElementById('btn-toggle-timer');
+
+$btnToggleTimer.addEventListener('click', () => {
+  emit('lobby:toggleTurnTimer');
+});
 
 let myId = null;
 let joined = false;
@@ -231,6 +237,13 @@ function showLobby(state) {
       $btnStart.classList.add('hidden');
     }
   }
+
+  // Turn Timer toggle — visible to all, clickable by host
+  $turnTimerToggle.classList.remove('hidden');
+  const timerOn = state.turnTimerEnabled || false;
+  $btnToggleTimer.textContent = timerOn ? 'ON' : 'OFF';
+  $btnToggleTimer.classList.toggle('timer-on', timerOn);
+  $btnToggleTimer.disabled = (state.hostId !== myId);
 }
 
 function switchToGame() {

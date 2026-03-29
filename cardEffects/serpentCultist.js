@@ -8,7 +8,7 @@ export default function serpentCultist(familiar, context) {
 
   // Need at least one OTHER living familiar
   const otherLiving = (player.familiars || []).filter(
-    f => (f.currentHp || 0) > 0 && f !== familiar
+    f => f && (f.currentHp || 0) > 0 && f !== familiar
   );
   if (otherLiving.length === 0) return null;
 

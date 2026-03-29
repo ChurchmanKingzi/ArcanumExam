@@ -22,6 +22,7 @@ export function escapeCondition(player, room) {
   for (const [, p] of room.players) {
     if (p.left) continue;
     for (const f of (p.familiars || [])) {
+      if (!f) continue;
       if ((f.currentHp || 0) > 0) return false;
     }
   }

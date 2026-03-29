@@ -1489,6 +1489,9 @@ function createRoom(id) {
     activeSpellPlayer: null,
     disconnectTimers: new Map(),
     roundTransitioning: false,
+    // Turn timer (optional — toggled in lobby)
+    turnTimerEnabled: false,
+    turnTimer: null, // { playerId, startedAt, elapsed: 0, duration: 120000, timeoutId }
     // Proctor approval & win tracking
     proctorApprovals: {},     // { proctorName: [playerId, ...] }
     winners: [],              // player IDs who have won
@@ -1499,6 +1502,7 @@ function createRoom(id) {
     damageEvents: [],         // [{ playerId, type, familiarIndex?, damage }] — one-shot
     healEvents: [],           // [{ playerId, type, familiarIndex?, amount }] — one-shot
     auraEvents: [],           // [{ playerId, type, familiarIndex?, color }] — one-shot glow animation
+    pingEvents: [],           // [{ pingerId, pingerColor, targetType, targetPlayerId, targetIndex }] — one-shot
     neurotoxinEvent: null,    // { tappedTargets: [...], poisonTargets: [...] } — one-shot
     poisonCloudEvents: [],    // [{ playerId, type, familiarIndex }] — one-shot, universal poison visual
     rebornEvents: [],         // [{ playerId, familiarIndex }] — one-shot flame animation
@@ -1546,12 +1550,13 @@ function createRoom(id) {
     magicAmethystEvent: false, // one-shot: triggers purple sparkle animation on all screens
     magicEmeraldEvent: false,  // one-shot: triggers green sparkle animation on all screens
     magneticPotionEvent: null, // one-shot: activatorId — triggers animation on all screens
+    ramEvents: [],             // [{ sourcePlayerId, sourceType, sourceFamiliarIndex, targets }] — one-shot familiar ram
   };
   rooms.set(id, room);
   return room;
 }
 
-function getPublicPlayerData(player, phase, viewerId = null) {
+function getPublicPlayerData(player, phase, viewerId = null, room = null) {
   const data = {
     id: player.id,
     name: player.name,
@@ -1620,6 +1625,7 @@ function getPublicPlayerData(player, phase, viewerId = null) {
     data.voodooCurseTargetId = player.voodooCurseTargetId || null;
     data.sharpEdgedStacks = player.sharpEdgedStacks || 0;
     data.royaltyStacks = player.royaltyStacks || 0;
+    data.corgiPenalty = getRoyalCorgiPenalty(room, player.id);
     data.warProfiteering = player.warProfiteering || false;
     data.stuffedTeddyProtected = hasStuffedTeddyProtection(player);
     data.whiteBullShieldActive = (player.familiars || []).some(f => f && f.whiteBullShield && f.currentHp > 0);
@@ -1699,7 +1705,7 @@ function convertItemToGamerToken(player, itemCard, room) {
     currentHp: 5,
     gamerToken: true,
   };
-  player.familiars.push(token);
+  insertFamiliarSlot(player, token);
   trackFamiliarGained(player);
   console.log(`🎮 Gamer: "${itemCard.name}" converted to Familiar Token for ${player.name} (familiar #${player.familiars.length - 1})`);
   return token;
@@ -1723,7 +1729,7 @@ function convertDeepseaIdolToFamiliar(player, itemCard, room) {
     currentHp: 10,
     deepseaIdol: true,
   };
-  player.familiars.push(familiar);
+  insertFamiliarSlot(player, familiar);
   trackFamiliarGained(player);
   console.log(`🪸 ${player.name}'s Deepsea Idol Item becomes a Familiar (hp=10, idx=${player.familiars.length - 1})`);
   return familiar;
@@ -3431,7 +3437,7 @@ function canPlayAnyCard(player, room) {
     if (card.type !== 'Familiar' && card.type !== 'Equip') return false;
     if (card.type === 'Familiar' && card.name === 'Gerrymander' && room && isGerrymanderOnBoard(room)) return false;
     let cost = card.cost === -1 ? -1 : (card.cost || 0);
-    if (card.type === 'Familiar') cost = getEffectiveFamiliarCost(player, cost, card.name);
+    if (card.type === 'Familiar') cost = getEffectiveFamiliarCost(player, cost, card.name, room);
     if (cost === -1) return handSize >= 2; // variable cost: need card + at least 1 payment
     return cost <= handSize - 1;
   });
@@ -3534,13 +3540,13 @@ function triggerPreparation(room) {
     if (p.left || p.disconnected) continue;
     const others = [];
     for (const [osid, op] of room.players) {
-      if (osid !== sid) others.push(getPublicPlayerData(op, room.phase, sid));
+      if (osid !== sid) others.push(getPublicPlayerData(op, room.phase, sid, room));
     }
     io.to(sid).emit('game:state', {
       phase: room.phase,
       proctors: room.proctors,
       you: {
-        ...getPublicPlayerData(p, room.phase, sid),
+        ...getPublicPlayerData(p, room.phase, sid, room),
         hand: p.hand.map(c => {
           if (c.type === 'Spell' && !isSpellCastable(room, c, p, sid)) {
             return { ...c, spellUncastable: true };
@@ -3558,6 +3564,7 @@ function triggerPreparation(room) {
       others,
       playerCount: room.players.size,
       hostId: room.hostId,
+      turnTimerEnabled: room.turnTimerEnabled || false,
       currentTurnId: room.currentTurnId,
       prepTurnOrder: room.prepTurnOrder,
       startingPlayerName: startingPlayer.name,
@@ -3653,7 +3660,7 @@ function discardFromHand(room, playerId, player, cards) {
         console.log(`🪱 Ash Worms discard-summon blocked by Barrel Home for ${player.name}`);
       } else {
         card.currentHp = card.hp || 10;
-        player.familiars.push(card);
+        insertFamiliarSlot(player, card);
         trackFamiliarGained(player);
         if (!room.ashWormsSummonEvents) room.ashWormsSummonEvents = [];
         room.ashWormsSummonEvents.push({ playerId, familiarIndex: player.familiars.length - 1 });
@@ -3755,7 +3762,7 @@ function discardFromHand(room, playerId, player, cards) {
     if (tcCount > 0) {
       const hasOpponentFamiliar = [...room.players.entries()].some(
         ([pid, p]) => pid !== playerId && !p.left && !p.won &&
-          (p.familiars || []).some(f => (f.currentHp || 0) > 0)
+          (p.familiars || []).some(f => f && (f.currentHp || 0) > 0)
       );
       if (hasOpponentFamiliar) {
         if (!room._treacherousCrystalQueue) room._treacherousCrystalQueue = [];
@@ -3923,6 +3930,23 @@ function addPoisonCloudEvent(room, playerId, type, familiarIndex) {
   room.poisonCloudEvents.push({ playerId, type, familiarIndex: familiarIndex ?? -1 });
 }
 
+/**
+ * Push a familiar/student ram animation event.
+ * @param {object} room
+ * @param {string} sourcePlayerId - owner of the attacking/activating entity
+ * @param {string} sourceType - 'familiar', 'summoned-student', or 'student'
+ * @param {number} sourceFamiliarIndex - familiar index (-1 for main student)
+ * @param {Array} targets - [{ playerId, type, familiarIndex }] board targets
+ */
+function pushRamEvent(room, sourcePlayerId, sourceType, sourceFamiliarIndex, targets) {
+  if (!targets || targets.length === 0) return;
+  // Only ram toward board entities (students, familiars)
+  const boardTargets = targets.filter(t => t.type === 'student' || t.type === 'familiar');
+  if (boardTargets.length === 0) return;
+  if (!room.ramEvents) room.ramEvents = [];
+  room.ramEvents.push({ sourcePlayerId, sourceType, sourceFamiliarIndex, targets: boardTargets });
+}
+
 function tapFamiliar(player, familiarIndex) {
   if (typeof familiarIndex !== 'number' || familiarIndex < 0) return; // guard for item sources (index = -1)
   player.tappedFamiliars.push(familiarIndex);
@@ -3931,6 +3955,7 @@ function tapFamiliar(player, familiarIndex) {
       && !player.won
       && !player.averageStudentBonusUsed) {
     player._avgStudentPendingBonusFamIdx = familiarIndex;
+    player._avgStudentPendingBonusFamRef = player.familiars[familiarIndex] || null;
   }
 }
 
@@ -3945,6 +3970,69 @@ function forcedTapFamiliar(room, player, familiarIndex) {
   // Reflection: track that a target was force-tapped by an effect
   if (!room._reflectionTapEvents) room._reflectionTapEvents = [];
   room._reflectionTapEvents.push({ tappedOwnerId: player.id, type: 'familiar', playerId: player.id, familiarIndex });
+}
+
+/**
+ * Remove a familiar from the board, then compact same-parity (even/odd) familiars
+ * so they slide toward the student without crossing sides.
+ * Returns the removed familiar, or null.
+ */
+function removeFamiliarSlot(player, familiarIndex) {
+  if (!player || !player.familiars) return null;
+  if (familiarIndex < 0 || familiarIndex >= player.familiars.length) return null;
+  const removed = player.familiars[familiarIndex];
+  player.familiars[familiarIndex] = null;
+  // Remove from tappedFamiliars
+  player.tappedFamiliars = (player.tappedFamiliars || []).filter(ti => ti !== familiarIndex);
+
+  // Compact same-parity familiars toward index 0 (toward the student)
+  const parity = familiarIndex % 2;
+  const indexMap = new Map(); // oldIndex → newIndex
+  let writeIdx = parity;
+  for (let readIdx = parity; readIdx < player.familiars.length; readIdx += 2) {
+    if (player.familiars[readIdx] !== null) {
+      if (readIdx !== writeIdx) {
+        player.familiars[writeIdx] = player.familiars[readIdx];
+        player.familiars[readIdx] = null;
+        indexMap.set(readIdx, writeIdx);
+      }
+      writeIdx += 2;
+    }
+  }
+  // Remap tappedFamiliars for shifted indices
+  if (indexMap.size > 0) {
+    player.tappedFamiliars = player.tappedFamiliars.map(ti => indexMap.has(ti) ? indexMap.get(ti) : ti);
+    // Remap harpy guard targets pointing to shifted familiars
+    for (const f of (player.familiars || [])) {
+      if (!f || !f.harpyGuardTarget || f.harpyGuardTarget.type !== 'familiar') continue;
+      const oldGI = f.harpyGuardTarget.familiarIndex;
+      if (indexMap.has(oldGI)) f.harpyGuardTarget.familiarIndex = indexMap.get(oldGI);
+    }
+  }
+
+  // Trim trailing nulls to keep array compact
+  while (player.familiars.length > 0 && player.familiars[player.familiars.length - 1] === null) {
+    player.familiars.pop();
+  }
+  return removed;
+}
+
+/**
+ * Add a familiar to the board, filling the first null slot or pushing to end.
+ * Returns the index where the familiar was placed.
+ */
+function insertFamiliarSlot(player, familiar) {
+  if (!player.familiars) player.familiars = [];
+  // Find first null slot
+  for (let i = 0; i < player.familiars.length; i++) {
+    if (player.familiars[i] === null) {
+      player.familiars[i] = familiar;
+      return i;
+    }
+  }
+  // No null slot — push to end
+  player.familiars.push(familiar);
+  return player.familiars.length - 1;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4447,6 +4535,82 @@ function getHarpyGuardEligibleTargets(player, harpyFamiliarIndex) {
   return targets;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  SUB-PHASE TIMER — 30s timer for non-turn selections (harpy guard, etc.)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function startSubPhaseTimer(room, duration, handler) {
+  clearSubPhaseTimer(room);
+  room._subPhaseTimerStart = Date.now();
+  room._subPhaseTimerDuration = duration;
+  room._subPhaseTimerId = setTimeout(handler, duration);
+}
+
+function clearSubPhaseTimer(room) {
+  clearTimeout(room._subPhaseTimerId);
+  room._subPhaseTimerId = null;
+  room._subPhaseTimerStart = null;
+  room._subPhaseTimerDuration = null;
+}
+
+function handleHarpyGuardTimeout(room) {
+  if (room.examSubPhase !== 'harpy-guard') return;
+  clearSubPhaseTimer(room);
+  console.log(`⏱️⚡ Harpy guard TIMEOUT — auto-selecting for remaining players`);
+  for (const [pid, p] of room.players) {
+    if (p.harpyGuardReady || p.left) continue;
+    // Auto-select for each pending Harpy in their queue
+    while (p.pendingHarpyGuard || (p._harpyGuardQueue && p._harpyGuardQueue.length > 0)) {
+      if (p.pendingHarpyGuard) {
+        const hg = p.pendingHarpyGuard;
+        const eligible = hg.eligibleTargets || [];
+        if (eligible.length > 0) {
+          const pick = eligible[Math.floor(Math.random() * eligible.length)];
+          const harpy = p.familiars[hg.familiarIndex];
+          if (harpy) {
+            harpy.harpyGuardTarget = { type: pick.type, familiarIndex: pick.familiarIndex };
+            console.log(`⏱️ Auto-guard: ${p.name}'s ${harpy.name} → ${pick.type}${pick.type === 'familiar' ? ' #' + pick.familiarIndex : ''}`);
+          }
+        }
+        p._harpyGuardQueue?.shift();
+      }
+      advancePlayerHarpyGuard(room, p);
+      if (p.harpyGuardReady) break;
+    }
+    p.harpyGuardReady = true;
+    p.pendingHarpyGuard = null;
+    delete p._harpyGuardQueue;
+  }
+  if (checkHarpyGuardComplete(room)) {
+    if (room.examSubPhase === 'turns') advanceExamTurnIfNeeded(room);
+  }
+  broadcastRoomState(room);
+}
+
+function handleBuffoonPickTimeout(room) {
+  if (room.examSubPhase !== 'buffoon-pick') return;
+  clearSubPhaseTimer(room);
+  console.log(`⏱️⚡ Buffoon pick TIMEOUT — auto-selecting random proctor`);
+  const pa = room.pendingActivation;
+  if (pa && pa.effectType === 'buffoon-disable-proctor') {
+    const pid = pa.playerId;
+    // Pick random non-disabled proctor
+    const available = (room.proctors || [])
+      .map(p => p.name)
+      .filter(n => !room.disabledProctors.includes(n));
+    if (available.length > 0) {
+      const pick = available[Math.floor(Math.random() * available.length)];
+      console.log(`⏱️ Auto-picking proctor "${pick}" for Buffoon`);
+      _triggerSocketHandler(room, pid, 'student:buffoonDisable', { proctorName: pick });
+      return;
+    }
+  }
+  // Fallback: just clear and continue
+  room.pendingActivation = null;
+  room.examSubPhase = 'snare-prep';
+  broadcastRoomState(room);
+}
+
 /**
  * Enter the Harpy Warrior guard selection phase after snares + magic modifier.
  * If no Harpies need guarding, sets examSubPhase = 'turns' directly.
@@ -4497,6 +4661,10 @@ function enterHarpyGuardPhaseOrTurns(room) {
   }
   // Edge case: all fizzled during setup
   if (checkHarpyGuardComplete(room)) return;
+  // Start 30s timer for harpy guard if turn timer enabled
+  if (room.turnTimerEnabled) {
+    startSubPhaseTimer(room, 30000, () => handleHarpyGuardTimeout(room));
+  }
 }
 
 /**
@@ -4547,6 +4715,7 @@ function advancePlayerHarpyGuard(room, player) {
 function checkHarpyGuardComplete(room) {
   const active = getActivePlayers(room);
   if (!active.every(p => p.harpyGuardReady)) return false;
+  clearSubPhaseTimer(room);
   room.examSubPhase = 'turns';
   // Clean up
   for (const [, p] of room.players) {
@@ -5699,14 +5868,17 @@ function getEffectiveSpellCost(player, baseCost, room, card, studentCast = false
   // Count opponent Mana Absorbing Crystals
   const crystalPenalty = countOpponentCrystals(room, player?.id);
   const royaltyIncrease = (player?.royaltyStacks || 0) * 2;
-  // Magic Show: all spells are free, but Crystal/Royalty add on top
-  if (room && isMagicShowActive(room)) return crystalPenalty + royaltyIncrease;
-  // Forbidden Grimoire: spells cost 0 when cast by a Student, but Crystal/Royalty add on top
-  if (studentCast && hasForbiddenGrimoire(player)) return crystalPenalty + royaltyIncrease;
-  // Increase first (Crystal, Royalty), then decrease (Chuunibyou, Chilly Wizzy)
+  const corgiPenalty = getRoyalCorgiPenalty(room, player?.id);
+  // Magic Show: all spells are free, but Crystal/Royalty/Corgi add on top
+  if (room && isMagicShowActive(room)) return crystalPenalty + royaltyIncrease + corgiPenalty;
+  // Forbidden Grimoire: spells cost 0 when cast by a Student, but Crystal/Royalty/Corgi add on top
+  if (studentCast && hasForbiddenGrimoire(player)) return crystalPenalty + royaltyIncrease + corgiPenalty;
+  // Increase first (Crystal, Royalty, Corgi), then decrease (Chuunibyou, Chilly Wizzy)
   let cost = (baseCost || 0) + crystalPenalty;
   // Royal Corgi: Royalty debuff increases cost
   if (royaltyIncrease > 0) cost += royaltyIncrease;
+  // Royal Corgi passive: +1 per opponent Corgi
+  if (corgiPenalty > 0) cost += corgiPenalty;
   if (hasActiveStudentEffect(player, 'The Chuunibyou') && !player.won) {
     cost = Math.max(0, cost - 2);
   }
@@ -5850,12 +6022,15 @@ function getGreatKingTrexReduction(player) {
  * and Great King Trex passive (each alive Trex: -2 for non-Trex familiars).
  * @param {string} [cardName] - Name of the familiar being summoned (to exclude self-discount)
  */
-function getEffectiveFamiliarCost(player, baseCost, cardName = null) {
+function getEffectiveFamiliarCost(player, baseCost, cardName = null, room = null) {
   if (baseCost === -1) return -1; // variable cost — no reductions apply
   let cost = baseCost || 0;
   // Royal Corgi: Royalty debuff increases cost (before decreases)
   const royaltyIncrease = (player?.royaltyStacks || 0) * 2;
   if (royaltyIncrease > 0) cost += royaltyIncrease;
+  // Royal Corgi passive: +1 per opponent Corgi
+  const corgiPenalty = getRoyalCorgiPenalty(room, player?.id);
+  if (corgiPenalty > 0) cost += corgiPenalty;
   if (hasActiveStudentEffect(player, 'The Transfer Student') && !player.won) {
     cost = Math.max(0, cost - 1);
   }
@@ -5895,6 +6070,25 @@ function getMineCartReduction(player) {
 }
 
 /**
+ * Royal Corgi passive: count living Royal Corgis on ALL opponents' boards.
+ * Each one increases this player's card costs by 1 during exam phase.
+ */
+function getRoyalCorgiPenalty(room, playerId) {
+  if (!room || room.phase !== 'exam') return 0;
+  let count = 0;
+  for (const [pid, p] of room.players) {
+    if (pid === playerId || p.left) continue;
+    for (const f of (p.familiars || [])) {
+      if (f && (f.currentHp || 0) > 0 && !f.passiveNegated
+          && (f.name === 'Royal Corgi' || (f.isClone && f.cloneSourceName === 'Royal Corgi'))) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
+/**
  * Get eligible player IDs for Edgelord's multi-target attack.
  * A player is eligible if they have at least one living target (student or familiar)
  * and haven't left the game. Won players are still eligible if they have living targets.
@@ -5904,7 +6098,7 @@ function getEdgelordEligiblePlayerIds(room) {
   for (const [pid, p] of room.players) {
     if (p.left) continue;
     const hasLivingStudent = p.chosenStudent && !p.studentDead;
-    const hasLivingFamiliar = (p.familiars || []).some(f => (f.currentHp || 0) > 0);
+    const hasLivingFamiliar = (p.familiars || []).some(f => f && (f.currentHp || 0) > 0);
     if (hasLivingStudent || hasLivingFamiliar) eligible.push(pid);
   }
   return eligible;
@@ -6358,7 +6552,37 @@ function enterSnarePrep(room) {
   if (active.every(p => p.snareReady)) {
     // No spider hives needed (nobody placed a snare)
     _tryUncoolMalfunctionThenContinue(room);
+  } else if (room.turnTimerEnabled) {
+    // Start 60-second snare prep timer
+    clearTimeout(room._snarePrepTimerId);
+    room._snarePrepTimerStart = Date.now();
+    room._snarePrepTimerDuration = 60000;
+    room._snarePrepTimerId = setTimeout(() => {
+      handleSnarePrepTimeout(room);
+    }, 60000);
   }
+}
+
+/**
+ * Handle snare prep timeout: auto-skip all players who haven't placed a snare.
+ */
+function handleSnarePrepTimeout(room) {
+  if (room.examSubPhase !== 'snare-prep') return;
+  room._snarePrepTimerId = null;
+  room._snarePrepTimerStart = null;
+  room._snarePrepTimerDuration = null;
+  console.log(`⏱️⚡ Snare prep TIMEOUT — auto-skipping remaining players`);
+  const active = getActivePlayers(room);
+  for (const p of active) {
+    if (!p.snareReady) {
+      p.snareReady = true;
+      console.log(`⏱️ Auto-skipped snare prep for ${p.name}`);
+    }
+  }
+  if (checkSnarePhaseComplete(room)) {
+    if (room.examSubPhase === 'turns') advanceExamTurnIfNeeded(room);
+  }
+  broadcastRoomState(room);
 }
 
 /**
@@ -6369,6 +6593,11 @@ function checkSnarePhaseComplete(room) {
   const active = getActivePlayers(room);
   if (active.every(p => p.snareReady)) {
     console.log(`🪤 Snare prep complete — starting exam turns`);
+    // Clear snare prep timer
+    clearTimeout(room._snarePrepTimerId);
+    room._snarePrepTimerId = null;
+    room._snarePrepTimerStart = null;
+    room._snarePrepTimerDuration = null;
 
     // Spider Hive: spawn spiders for players who placed a snare
     resolveSpiderHives(room);
@@ -6418,7 +6647,7 @@ function resolveSpiderHives(room) {
       }
 
       const spider = { ...template, currentHp: template.hp || 10, spiderHiveSpawn: true };
-      p.familiars.push(spider);
+      insertFamiliarSlot(p, spider);
       trackFamiliarGained(p);
       console.log(`🕷️ Spider Hive spawns ${chosenName} for ${p.name} (HP: ${spider.currentHp})`);
     }
@@ -6449,7 +6678,28 @@ function enterMagicModifierPhase(room) {
   }
 
   console.log(`🔮 Magic Modifier phase — ${modifierOwners.length} owner(s) must choose discards: ${modifierOwners.map(p => p.name).join(', ')}`);
+  if (room.turnTimerEnabled) {
+    startSubPhaseTimer(room, 30000, () => handleMagicModifierTimeout(room));
+  }
   return true;
+}
+
+function handleMagicModifierTimeout(room) {
+  if (room.examSubPhase !== 'magic-modifier-discard') return;
+  clearSubPhaseTimer(room);
+  console.log(`⏱️⚡ Magic Modifier TIMEOUT — auto-confirming with 0 discards`);
+  const active = getActivePlayers(room);
+  for (const p of active) {
+    if (!p.magicModifierReady) {
+      p.magicModifierReady = true;
+      p.magicModifierDiscardCount = 0;
+      console.log(`⏱️ Auto-confirmed magic modifier for ${p.name} (0 discards)`);
+    }
+  }
+  if (checkMagicModifierComplete(room)) {
+    if (room.examSubPhase === 'turns') advanceExamTurnIfNeeded(room);
+  }
+  broadcastRoomState(room);
 }
 
 /**
@@ -6460,6 +6710,7 @@ function enterMagicModifierPhase(room) {
 function checkMagicModifierComplete(room) {
   const active = getActivePlayers(room);
   if (!active.every(p => p.magicModifierReady)) return false;
+  clearSubPhaseTimer(room);
 
   // Gather discard counts from modifier owners
   const counts = [];
@@ -6652,6 +6903,10 @@ function _continueExamSetup(room) {
     };
     console.log(`🃏 The Buffoon (${buffoonPlayer.name}) must pick a Proctor to permanently disable`);
 
+    if (room.turnTimerEnabled) {
+      startSubPhaseTimer(room, 30000, () => handleBuffoonPickTimeout(room));
+    }
+
     broadcastRoomState(room);
     return; // Wait for Buffoon to pick — handler will continue to snare-prep
   }
@@ -6682,6 +6937,7 @@ function _continueExamSetup(room) {
  * Continues from where triggerExam paused.
  */
 function resumeExamAfterBuffoon(room) {
+  clearSubPhaseTimer(room);
   enterCrystalBallPhase(room, () => {
     enterFutureTechLampPhase(room, () => {
     enterControlDevicePhase(room, () => {
@@ -6728,6 +6984,28 @@ function isRoundComplete(room) {
     if (p && !p.left && !p.disconnected && countUntappedTargets(p, room) > 0) return false;
   }
   return true;
+}
+
+/**
+ * Safely start a new exam round — waits for any pending reactive states
+ * from the last action to resolve before entering round-end processing.
+ * (e.g., Shield of Death prompt, snare activation, equip trigger)
+ */
+function safeStartNewExamRound(room) {
+  if (room.gameOver) return;
+  if (room.snareReaction || room.pendingActivation || room.pendingEquipTrigger
+      || room._sodQueue || room._solQueue || room.pendingElixir || room.pendingAnkh
+      || room.pendingMagnetRedirect || room.pendingSnowmanExhaust
+      || room.bluffReaction || room._resolvingBomblebee
+      || room.pendingPriceTag || room.pendingWeakeningCrystal
+      || room.pendingPunchInTheBox || room.pendingSwordBreakingRock
+      || room.pendingOverchargedTrap) {
+    console.log(`⏳ Round transition waiting — pending state still active`);
+    setTimeout(() => safeStartNewExamRound(room), 250);
+    return;
+  }
+  startNewExamRound(room);
+  if (!room.gameOver) broadcastRoomState(room);
 }
 
 /**
@@ -6845,7 +7123,7 @@ function processTimeWarpEffects(room, roundCount) {
           delete card.transferMarked;
           delete card.transferSelfPoisoned;
           card.currentHp = card.hp || 10;
-          p.familiars.push(card);
+          insertFamiliarSlot(p, card);
           trackFamiliarGained(p);
           if (!room.undeadFishReviveEvents) room.undeadFishReviveEvents = [];
           room.undeadFishReviveEvents.push({ playerId: pid, familiarIndex: p.familiars.length - 1 });
@@ -7159,7 +7437,7 @@ function resumeEndOfRoundAfterSongOfRain(room) {
     delete card.looming;
     delete card.loomingOwner;
     card.currentHp = card.hp || 10;
-    p.familiars.push(card);
+    insertFamiliarSlot(p, card);
     const fi = p.familiars.length - 1;
     // Enters Exhausted
     tapFamiliar(p, fi);
@@ -7564,7 +7842,7 @@ function continueNewExamRound(room) {
   for (const [, p] of room.players) {
     if (p.left || p.won || p.studentDead) continue;
     if (!hasActiveStudentEffect(p, 'The Loner')) continue;
-    const livingFams = (p.familiars || []).filter(f => (f.currentHp || 0) > 0).length;
+    const livingFams = (p.familiars || []).filter(f => f && (f.currentHp || 0) > 0).length;
     if (livingFams === 0 && p.chosenStudent) {
       const oldHp = p.chosenStudent.currentHp;
       p.chosenStudent.currentHp = Math.min(p.chosenStudent.hp, oldHp + 25);
@@ -7789,7 +8067,7 @@ function _continueEscapeAndProctorWins(room, hadActiveRowdy, hadActiveTeachersAg
         delete card.transferMarked;
         delete card.transferSelfPoisoned;
         card.currentHp = card.hp || 10;
-        p.familiars.push(card);
+        insertFamiliarSlot(p, card);
         trackFamiliarGained(p);
         const famIdx = p.familiars.length - 1;
         room.undeadFishReviveEvents.push({ playerId: pid, familiarIndex: famIdx });
@@ -8035,7 +8313,7 @@ function _continueNewExamRoundApplyWins(room) {
       }
       p.spellCastThisRound = false;
       // Class Pet survival streak
-      const livingFams = (p.familiars || []).filter(f => (f.currentHp || 0) > 0).length;
+      const livingFams = (p.familiars || []).filter(f => f && (f.currentHp || 0) > 0).length;
       if (!p.classPetFamiliarDied && livingFams > 0) {
         p.classPetSurvivalRounds = (p.classPetSurvivalRounds || 0) + 1;
       } else {
@@ -8118,7 +8396,7 @@ function _continueNewExamRoundApplyWins(room) {
           newSlime.isClone = true;
           newSlime.originalName = templateSlime.originalName;
         }
-        p.familiars.push(newSlime);
+        insertFamiliarSlot(p, newSlime);
         trackFamiliarGained(p);
         room.slimeSpawnEvents.push({ playerId: pid, familiarIndex: p.familiars.length - 1 });
       }
@@ -8923,7 +9201,7 @@ function processNextShieldOfDeath(room) {
   let anyFamiliar = false;
   for (const [, p] of room.players) {
     if (p.left) continue;
-    if ((p.familiars || []).some(f => (f.currentHp || 0) > 0)) { anyFamiliar = true; break; }
+    if ((p.familiars || []).some(f => f && (f.currentHp || 0) > 0)) { anyFamiliar = true; break; }
   }
   if (!anyFamiliar) {
     queue.shift();
@@ -9014,7 +9292,7 @@ function processNextShieldOfLife(room) {
   let anyDamaged = false;
   for (const [, p] of room.players) {
     if (p.left) continue;
-    if ((p.familiars || []).some(f => (f.currentHp || 0) > 0 && f.currentHp < f.hp)) {
+    if ((p.familiars || []).some(f => f && (f.currentHp || 0) > 0 && f.currentHp < f.hp)) {
       anyDamaged = true; break;
     }
   }
@@ -9546,7 +9824,7 @@ function resolvePunchInTheBox(room, playerId) {
     } else {
       const fi = recoilFamIdx;
       sourceValid = fi >= 0 && fi < (sourceOwner.familiars || []).length
-        && sourceOwner.familiars[fi].currentHp > 0;
+        && sourceOwner.familiars[fi] && sourceOwner.familiars[fi].currentHp > 0;
     }
 
     if (sourceValid) {
@@ -9905,7 +10183,7 @@ function canEffectActivate(room, player, playerId, sourceIndex, copiedEffect) {
       for (const [pid, p] of room.players) {
         if (p.left) continue;
         for (let i = 0; i < (p.familiars || []).length; i++) {
-          if (p.familiars[i].currentHp > 0 && !(pid === playerId && i === sourceIndex)) fc++;
+          if (p.familiars[i] && p.familiars[i].currentHp > 0 && !(pid === playerId && i === sourceIndex)) fc++;
         }
       }
       return fc >= 1;
@@ -9916,7 +10194,7 @@ function canEffectActivate(room, player, playerId, sourceIndex, copiedEffect) {
         if (p.left) continue;
         if (p.chosenStudent && !p.studentDead && !p.won && p.tappedStudent) tc++;
         for (let i = 0; i < (p.familiars || []).length; i++) {
-          if (p.familiars[i].currentHp > 0 && (p.tappedFamiliars || []).includes(i)) {
+          if (p.familiars[i] && p.familiars[i].currentHp > 0 && (p.tappedFamiliars || []).includes(i)) {
             if (!(pid === playerId && i === sourceIndex)) tc++;
           }
         }
@@ -9946,7 +10224,7 @@ function canEffectActivate(room, player, playerId, sourceIndex, copiedEffect) {
       for (const c of (p.discardPile || [])) {
         if (c.type !== 'Familiar') continue;
         if (c.name === 'Gerrymander' && isGerrymanderOnBoard(room)) continue;
-        const cost = getEffectiveFamiliarCost(player, c.cost || 0, c.name);
+        const cost = getEffectiveFamiliarCost(player, c.cost || 0, c.name, room);
         if (cost === -1) {
           // Variable cost: need at least minCost cards in hand
           const minCost = c.minCost ?? 1;
@@ -10341,7 +10619,7 @@ function countSneezeRocketOpponentTargets(room, controllerPlayerId, effect) {
     if (et === 'damage-targets') {
       if (effect.familiarsOnly) {
         // Only familiars count
-        count = (p.familiars || []).filter(f => f.currentHp > 0).length;
+        count = (p.familiars || []).filter(f => f && f.currentHp > 0).length;
       } else if (effect.tappedOnly) {
         // Only tapped targets count
         if (p.chosenStudent && p.tappedStudent && !p.studentDead && !p.won) count++;
@@ -10351,12 +10629,12 @@ function countSneezeRocketOpponentTargets(room, controllerPlayerId, effect) {
       } else {
         // Student + all alive familiars
         if (p.chosenStudent && !p.studentDead && !p.won) count++;
-        count += (p.familiars || []).filter(f => f.currentHp > 0).length;
+        count += (p.familiars || []).filter(f => f && f.currentHp > 0).length;
       }
     } else if (et === 'charm-familiar') {
       // Untapped enemy familiars
       for (let i = 0; i < (p.familiars || []).length; i++) {
-        if (p.familiars[i].currentHp > 0 && !(p.tappedFamiliars || []).includes(i)) count++;
+        if (p.familiars[i] && p.familiars[i].currentHp > 0 && !(p.tappedFamiliars || []).includes(i)) count++;
       }
     } else if (et === 'bard-copy') {
       // All alive non-summoned non-Bard familiars (tapped or untapped)
@@ -10374,24 +10652,24 @@ function countSneezeRocketOpponentTargets(room, controllerPlayerId, effect) {
       count = (p.equips || []).length + (p.snares || []).length + (p.fieldSpells || []).length;
     } else if (et === 'heal-target') {
       if (p.chosenStudent && !p.studentDead && !p.won && !isShyGirlProtected(room, p.id)) count++;
-      count += (p.familiars || []).filter(f => f.currentHp > 0).length;
+      count += (p.familiars || []).filter(f => f && f.currentHp > 0).length;
     } else if (et === 'nature-fairy-heal') {
-      count += (p.familiars || []).filter(f => f.currentHp > 0 && f.currentHp < f.hp).length;
+      count += (p.familiars || []).filter(f => f && f.currentHp > 0 && f.currentHp < f.hp).length;
     } else if (et === 'poison-target') {
       if (p.chosenStudent && !p.studentDead && !p.won && !isShyGirlProtected(room, p.id)) count++;
-      count += (p.familiars || []).filter(f => f.currentHp > 0).length;
+      count += (p.familiars || []).filter(f => f && f.currentHp > 0).length;
     } else if (et === 'destroy-snare') {
       count = (p.snares || []).length;
     } else if (et === 'exhaust-familiar' || et === 'delete-familiar' || et === 'vulture-exhaust') {
       // Only untapped enemy familiars (exclude self since SR controller isn't an opponent here)
       for (let i = 0; i < (p.familiars || []).length; i++) {
-        if (p.familiars[i].currentHp > 0 && !(p.tappedFamiliars || []).includes(i)) count++;
+        if (p.familiars[i] && p.familiars[i].currentHp > 0 && !(p.tappedFamiliars || []).includes(i)) count++;
       }
     } else if (et === 'petrify-target') {
       // Untapped familiars + student
       if (p.chosenStudent && !p.studentDead && !p.won && !p.tappedStudent) count++;
       for (let i = 0; i < (p.familiars || []).length; i++) {
-        if (p.familiars[i].currentHp > 0 && !(p.tappedFamiliars || []).includes(i)) count++;
+        if (p.familiars[i] && p.familiars[i].currentHp > 0 && !(p.tappedFamiliars || []).includes(i)) count++;
       }
     } else if (et === 'kill-familiar') {
       // All alive familiars (not summoned, not immune)
@@ -11469,7 +11747,7 @@ function _activateFamiliarCore(room, playerId, player, familiarIndex, canCancel,
         (p.discardPile || []).forEach((card, i) => {
           if (card.type !== 'Familiar') return;
           if (card.name === 'Gerrymander' && isGerrymanderOnBoard(room)) return;
-          const cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name);
+          const cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name, room);
           if (cost === -1) {
             // Variable cost: eligible if player can pay minCost
             const minCost = card.minCost ?? 1;
@@ -12427,6 +12705,942 @@ function _activateFamiliarCore(room, playerId, player, familiarIndex, canCancel,
 }
 
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  TURN TIMER — optional 2-minute timer per turn/decision
+// ═══════════════════════════════════════════════════════════════════════════
+
+const TURN_TIMER_DURATION = 120000; // 2 minutes
+
+function startTurnTimer(room, playerId) {
+  if (!room.turnTimerEnabled) return;
+  clearTurnTimer(room);
+  room.turnTimer = {
+    playerId,
+    startedAt: Date.now(),
+    elapsed: 0,
+    duration: TURN_TIMER_DURATION,
+    pausedAt: null,
+    timeoutId: setTimeout(() => handleTurnTimeout(room), TURN_TIMER_DURATION),
+  };
+  console.log(`⏱️ Turn timer started for ${room.players.get(playerId)?.name || '?'} (${TURN_TIMER_DURATION / 1000}s)`);
+}
+
+function pauseTurnTimer(room) {
+  if (!room.turnTimer || room.turnTimer.pausedAt) return;
+  clearTimeout(room.turnTimer.timeoutId);
+  room.turnTimer.timeoutId = null;
+  room.turnTimer.elapsed += Date.now() - room.turnTimer.startedAt;
+  room.turnTimer.pausedAt = Date.now();
+}
+
+function resumeTurnTimer(room) {
+  if (!room.turnTimer || !room.turnTimer.pausedAt) return;
+  const remaining = room.turnTimer.duration - room.turnTimer.elapsed;
+  if (remaining <= 0) { handleTurnTimeout(room); return; }
+  room.turnTimer.startedAt = Date.now();
+  room.turnTimer.pausedAt = null;
+  room.turnTimer.timeoutId = setTimeout(() => handleTurnTimeout(room), remaining);
+}
+
+function clearTurnTimer(room) {
+  if (room._interjectionTimer) clearInterjectionTimer(room);
+  if (!room.turnTimer) return;
+  clearTimeout(room.turnTimer.timeoutId);
+  room.turnTimer = null;
+}
+
+/**
+ * Check if the turn player currently has agency (can make a decision).
+ * If not, the timer should be paused.
+ */
+function turnPlayerHasAgency(room) {
+  if (!room.turnTimer) return false;
+  const pid = room.turnTimer.playerId;
+
+  // Snare reaction blocks turn player
+  if (room.snareReaction) return false;
+  // Bluff reaction
+  if (room.bluffReaction) return false;
+  // Chilly Wizzy reaction
+  if (room.chillyWizzyReaction) return false;
+  // Various timed reactions for other players
+  if (room.pendingElixir && room.pendingElixir.playerId !== pid) return false;
+  if (room.pendingAnkh && room.pendingAnkh.playerId !== pid) return false;
+  if (room.pendingPriceTag && room.pendingPriceTag.playerId !== pid) return false;
+  if (room.pendingPunchInTheBox && room.pendingPunchInTheBox.playerId !== pid) return false;
+  if (room.pendingWeakeningCrystal && room.pendingWeakeningCrystal.playerId !== pid) return false;
+  if (room.pendingSwordBreakingRock && room.pendingSwordBreakingRock.playerId !== pid) return false;
+  if (room.pendingBarbarianSword && room.pendingBarbarianSword.playerId !== pid) return false;
+  if (room.pendingJetpackReaction) return false;
+  if (room.pendingCoolKidProtect) return false;
+  // Magnet redirect for another player
+  if (room.pendingMagnetRedirect) {
+    const magnetPlayers = Object.keys(room.pendingMagnetRedirect.players);
+    if (!magnetPlayers.includes(pid)) return false;
+  }
+  // PA interjection: another player has priority
+  if (room.pendingActivation && room.pendingActivation.playerId !== pid
+      && !(room.pendingActivation.gerrymanderPlayerId === pid)) return false;
+  // Equip trigger for another player
+  if (room.pendingEquipTrigger && room.pendingEquipTrigger.playerId !== pid
+      && !(room.pendingEquipTrigger.gerrymanderPlayerId === pid)) return false;
+  // Round transitioning
+  if (room.roundTransitioning) return false;
+  // Game over
+  if (room.gameOver) return false;
+
+  return true;
+}
+
+/**
+ * Called from broadcastRoomState to auto-pause/resume the turn timer
+ * based on whether the timed player currently has agency.
+ */
+function updateTurnTimerPauseState(room) {
+  if (!room.turnTimerEnabled) return;
+
+  // ── Turn timer pause/resume ──
+  if (room.turnTimer) {
+    const hasAgency = turnPlayerHasAgency(room);
+    if (hasAgency && room.turnTimer.pausedAt) {
+      resumeTurnTimer(room);
+    } else if (!hasAgency && !room.turnTimer.pausedAt) {
+      pauseTurnTimer(room);
+    }
+  }
+
+  // ── Interjection timer: detect non-turn-player decisions ──
+  const interjectorId = getInterjectorPlayerId(room);
+  if (interjectorId) {
+    // An interjecting player has priority — start timer if not already running for them
+    if (!room._interjectionTimer || room._interjectionTimer.playerId !== interjectorId) {
+      startInterjectionTimer(room, interjectorId);
+    }
+  } else {
+    // No interjection — clear any running interjection timer
+    if (room._interjectionTimer) {
+      clearInterjectionTimer(room);
+    }
+  }
+}
+
+/**
+ * Detect which non-turn player currently has an interjecting decision to make.
+ * Returns their playerId, or null if no interjection is active.
+ */
+function getInterjectorPlayerId(room) {
+  if (room.gameOver || !room.turnTimerEnabled) return null;
+  const turnId = room.currentTurnId;
+
+  // PA interjection: non-turn player has pendingActivation
+  if (room.pendingActivation) {
+    const paOwner = room.pendingActivation.gerrymanderPlayerId || room.pendingActivation.playerId;
+    if (paOwner && paOwner !== turnId) return paOwner;
+  }
+
+  // Equip trigger interjection
+  if (room.pendingEquipTrigger) {
+    const etOwner = room.pendingEquipTrigger.gerrymanderPlayerId || room.pendingEquipTrigger.playerId;
+    if (etOwner && etOwner !== turnId) return etOwner;
+  }
+
+  // Magnet redirect: find a non-turn player who needs to redirect
+  if (room.pendingMagnetRedirect) {
+    for (const pid of Object.keys(room.pendingMagnetRedirect.players)) {
+      if (pid !== turnId) return pid;
+    }
+  }
+
+  // Snowman exhaust: non-turn player picking target
+  if (room.pendingSnowmanExhaust && room.pendingSnowmanExhaust.playerId !== turnId) {
+    return room.pendingSnowmanExhaust.playerId;
+  }
+
+  return null;
+}
+
+const INTERJECTION_TIMER_DURATION = 30000; // 30 seconds
+
+function startInterjectionTimer(room, playerId) {
+  clearInterjectionTimer(room);
+  room._interjectionTimer = {
+    playerId,
+    startedAt: Date.now(),
+    duration: INTERJECTION_TIMER_DURATION,
+    timeoutId: setTimeout(() => handleInterjectionTimeout(room), INTERJECTION_TIMER_DURATION),
+  };
+  const player = room.players.get(playerId);
+  console.log(`⏱️ Interjection timer started for ${player?.name || '?'} (${INTERJECTION_TIMER_DURATION / 1000}s)`);
+}
+
+function clearInterjectionTimer(room) {
+  if (!room._interjectionTimer) return;
+  clearTimeout(room._interjectionTimer.timeoutId);
+  room._interjectionTimer = null;
+}
+
+function handleInterjectionTimeout(room) {
+  if (!room._interjectionTimer || room.gameOver) return;
+  const pid = room._interjectionTimer.playerId;
+  const player = room.players.get(pid);
+  clearInterjectionTimer(room);
+
+  if (!player || player.left) return;
+  console.log(`⏱️⚡ INTERJECTION TIMEOUT for ${player.name}!`);
+
+  // ── PA interjection ──
+  if (room.pendingActivation) {
+    const paOwner = room.pendingActivation.gerrymanderPlayerId || room.pendingActivation.playerId;
+    if (paOwner === pid) {
+      autoConfirmPendingActivation(room, pid);
+      return;
+    }
+  }
+
+  // ── Equip trigger interjection ──
+  if (room.pendingEquipTrigger) {
+    const etOwner = room.pendingEquipTrigger.gerrymanderPlayerId || room.pendingEquipTrigger.playerId;
+    if (etOwner === pid) {
+      const pet = room.pendingEquipTrigger;
+      if (pet.effectType === 'pick-from-discard') {
+        const player2 = room.players.get(pid);
+        const dp = player2?.discardPile || [];
+        if (dp.length > 0) {
+          const idx = Math.floor(Math.random() * dp.length);
+          _triggerSocketHandler(room, pid, 'equip:triggerPick', { discardIndex: idx });
+          return;
+        }
+      } else if (pet.effectType === 'bounce-familiar') {
+        const targets = autoPickTargets(room, pid, {}, 'damage', 1);
+        const famTarget = targets.find(t => t.type === 'familiar');
+        if (famTarget) {
+          _triggerSocketHandler(room, pid, 'equip:triggerBounce', {
+            playerId: famTarget.playerId, familiarIndex: famTarget.familiarIndex,
+          });
+          return;
+        }
+      } else if (pet.effectType === 'equip-damage-target') {
+        const targets = autoPickTargets(room, pid, {}, 'damage', 1);
+        if (targets.length > 0) {
+          _triggerSocketHandler(room, pid, 'equip:triggerDamage', { target: targets[0] });
+          return;
+        }
+      }
+      // Fallback: skip the equip trigger
+      const afterFn = pet.afterFn;
+      room.pendingEquipTrigger = null;
+      if (afterFn) afterFn();
+      return;
+    }
+  }
+
+  // ── Magnet redirect ──
+  if (room.pendingMagnetRedirect && room.pendingMagnetRedirect.players[pid]) {
+    const entry = room.pendingMagnetRedirect.players[pid];
+    // Just keep the original target (decline redirect)
+    const alts = getAlternativeMagnetTargets(room, pid, entry.originalTarget,
+      entry.armorConstraints || room.pendingMagnetRedirect.constraints || {});
+    if (alts.length > 0) {
+      const pick = alts[Math.floor(Math.random() * alts.length)];
+      _triggerSocketHandler(room, pid, 'magnet:redirect', {
+        targetPlayerId: pick.playerId,
+        targetType: pick.type,
+        targetFamiliarIndex: pick.familiarIndex,
+      });
+    } else {
+      // No alternatives — keep original
+      _triggerSocketHandler(room, pid, 'magnet:redirect', {
+        targetPlayerId: entry.originalTarget.playerId,
+        targetType: entry.originalTarget.type,
+        targetFamiliarIndex: entry.originalTarget.familiarIndex,
+      });
+    }
+    return;
+  }
+
+  // ── Snowman exhaust ──
+  if (room.pendingSnowmanExhaust && room.pendingSnowmanExhaust.playerId === pid) {
+    // Pick random target
+    const targets = autoPickTargets(room, pid, { familiarsOnly: room.pendingSnowmanExhaust.familiarsOnly }, 'damage', 1);
+    if (targets.length > 0) {
+      const t = targets[0];
+      _triggerSocketHandler(room, pid, 'familiar:snowmanExhaust', {
+        targetPlayerId: t.playerId, targetType: t.type, targetFamiliarIndex: t.familiarIndex,
+      });
+      return;
+    }
+  }
+
+  // Fallback: log and let the game continue
+  console.log(`⏱️ Interjection timeout fallback — no action taken`);
+}
+
+/**
+ * Handle turn timeout — auto-resolve the current state.
+ */
+function handleTurnTimeout(room) {
+  if (!room.turnTimer || room.gameOver) return;
+  const pid = room.turnTimer.playerId;
+  const player = room.players.get(pid);
+  if (!player || player.left) { clearTurnTimer(room); return; }
+
+  // Clear timer FIRST to prevent re-triggering when pause/resume cycles during resolution
+  // (e.g. Shield of Death pauses timer → elapsed >= duration → resume would fire again)
+  clearTurnTimer(room);
+
+  console.log(`⏱️⚡ TURN TIMEOUT for ${player.name}!`);
+
+  // ── Case 1: Player has a pendingActivation (targeting, discard, etc.) ──
+  if (room.pendingActivation && room.pendingActivation.playerId === pid) {
+    autoResolvePendingActivation(room, pid);
+    return;
+  }
+
+  // ── Case 2: Player is in discard mode (paying a cost) ──
+  // Handled via pendingActivation effectTypes like awaiting-discard
+
+  // ── Case 3: Idle turn — player hasn't acted yet ──
+  if (room.currentTurnId === pid && room.examSubPhase === 'turns') {
+    autoResolveIdleTurn(room, pid);
+    return;
+  }
+
+  // Fallback: just advance the turn
+  console.log(`⏱️ Timeout fallback: advancing turn`);
+  clearTurnTimer(room);
+  const transitioning = advanceExamTurn(room);
+  if (!transitioning) broadcastRoomState(room);
+}
+
+/**
+ * Auto-resolve an idle turn: pick a random untapped actor, tap it, and advance.
+ * Students auto-attack a random enemy. Familiars just tap (effect skipped for safety).
+ */
+/**
+ * Programmatically trigger a server-side socket handler as if the client sent the event.
+ * Uses Node's EventEmitter.listeners() to find the registered handler function.
+ */
+function _triggerSocketHandler(room, playerId, eventName, data) {
+  const socket = getSocketById(room, playerId);
+  if (!socket) {
+    console.log(`⏱️ No socket for ${playerId} — fallback clear`);
+    return false;
+  }
+  const listeners = socket.listeners(eventName);
+  if (listeners.length > 0) {
+    listeners[0](data);
+    return true;
+  }
+  console.log(`⏱️ No listener for "${eventName}" on socket ${playerId}`);
+  return false;
+}
+
+/**
+ * Auto-resolve an idle turn: pick a random untapped actor and use it.
+ * Triggers exam:tap via the socket handler → runs FULL game logic
+ * (snare reactions, poisoned meat, familiar activation, etc.)
+ */
+function autoResolveIdleTurn(room, playerId) {
+  const player = room.players.get(playerId);
+  if (!player || player.left) return;
+
+  // ── Check if player was in cost selection mode → auto-play that card ──
+  if (player._consideringCard != null && player._consideringCard >= 0 && player._consideringCard < player.hand.length) {
+    const ci = player._consideringCard;
+    const card = player.hand[ci];
+    const preSelected = (player._consideringPayment || []).filter(i => i !== ci && i >= 0 && i < player.hand.length);
+    player._consideringCard = null;
+    player._consideringPayment = null;
+
+    if (card) {
+      // Compute effective cost using the same functions as the game:playCard handler
+      let effectiveCost;
+      if (card.cost === -1) {
+        // Variable cost: use max of (minCost, pre-selected count)
+        effectiveCost = Math.max(card.minCost || 0, preSelected.length);
+      } else {
+        // Fixed cost: apply all reductions
+        let rawCost = card.cost || 0;
+        if (card.type === 'Spell') rawCost = getEffectiveSpellCost(player, rawCost, room, card, true);
+        else if (card.type === 'Familiar') rawCost = getEffectiveFamiliarCost(player, rawCost, card.name, room);
+        else {
+          // Items/Equips: Royal Corgi + Sinister Idol
+          const royaltyIncrease = (player.royaltyStacks || 0) * 2;
+          if (royaltyIncrease > 0) rawCost += royaltyIncrease;
+          const corgiPenalty = getRoyalCorgiPenalty(room, playerId);
+          if (corgiPenalty > 0) rawCost += corgiPenalty;
+          if (card.type === 'Item') {
+            const idolPenalty = getSinisterIdolPenalty(room, playerId);
+            if (idolPenalty > 0) rawCost += idolPenalty;
+          }
+        }
+        // Angler Angel prep reduction
+        if (room.phase === 'preparation' && rawCost > 0) {
+          const angelReduction = getAnglerAngelReduction(player);
+          if (angelReduction > 0) rawCost = Math.max(0, rawCost - angelReduction);
+        }
+        // Mine Cart reduction (non-spells)
+        if (card.type !== 'Spell') {
+          const mineCartReduction = getMineCartReduction(player);
+          if (mineCartReduction > 0) rawCost = Math.max(0, rawCost - mineCartReduction);
+        }
+        // Energy Storage: zero cost
+        if (player.energyStoredActive && rawCost > 0) rawCost = 0;
+        effectiveCost = rawCost;
+      }
+
+      // Start with pre-selected indices
+      const paymentIndices = [...preSelected];
+      // Fill remaining with random cards
+      const remaining = effectiveCost - paymentIndices.length;
+      if (remaining > 0) {
+        const used = new Set([ci, ...paymentIndices]);
+        const available = player.hand.map((_, i) => i).filter(i => !used.has(i));
+        for (let i = 0; i < Math.min(remaining, available.length); i++) {
+          const pick = Math.floor(Math.random() * available.length);
+          paymentIndices.push(available.splice(pick, 1)[0]);
+        }
+      } else if (remaining < 0) {
+        // Pre-selected too many for reduced cost — trim excess
+        paymentIndices.length = effectiveCost;
+      }
+      console.log(`⏱️ Auto-playing "${card.name}" (effective cost ${effectiveCost}, ${preSelected.length} pre-selected) for ${player.name}`);
+      if (_triggerSocketHandler(room, playerId, 'game:playCard', { cardIndex: ci, paymentIndices })) {
+        // If playCard set up a PA, auto-confirm it
+        if (room.pendingActivation && room.pendingActivation.playerId === playerId) {
+          setTimeout(() => {
+            if (room.pendingActivation && room.pendingActivation.playerId === playerId) {
+              autoConfirmPendingActivation(room, playerId);
+            }
+          }, 100);
+        }
+        return;
+      }
+      // If playCard failed (e.g. not enough cards), fall through to random actor
+    }
+  }
+  player._consideringCard = null;
+  player._consideringPayment = null;
+
+  const actors = [];
+  if (player.chosenStudent && !player.tappedStudent && !player.studentDead && !player.won) {
+    actors.push({ type: 'student', index: -1 });
+  }
+  for (let i = 0; i < (player.familiars || []).length; i++) {
+    const f = player.familiars[i];
+    if (!f || f.currentHp <= 0) continue;
+    if ((player.tappedFamiliars || []).includes(i)) continue;
+    actors.push({ type: 'familiar', index: i });
+  }
+
+  if (actors.length === 0) {
+    console.log(`⏱️ ${player.name} has no untapped actors — advancing turn`);
+    clearTurnTimer(room);
+    const transitioning = advanceExamTurn(room);
+    if (!transitioning) broadcastRoomState(room);
+    return;
+  }
+
+  const actor = actors[Math.floor(Math.random() * actors.length)];
+  console.log(`⏱️ Auto-acting with ${actor.type}${actor.type === 'familiar' ? ' #' + actor.index : ''} for ${player.name}`);
+
+  // Trigger tap via socket handler — runs full game logic
+  if (!_triggerSocketHandler(room, playerId, 'exam:tap', {
+    target: actor.type,
+    familiarIndex: actor.type === 'familiar' ? actor.index : undefined,
+  })) {
+    // Fallback: just tap and advance
+    if (actor.type === 'student') player.tappedStudent = true;
+    else tapFamiliar(player, actor.index);
+    room.pendingActivation = null;
+    clearTurnTimer(room);
+    const transitioning = advanceExamTurn(room);
+    if (!transitioning) broadcastRoomState(room);
+    return;
+  }
+
+  // If exam:tap set up a PA (targeting needed), auto-confirm after brief delay
+  if (room.pendingActivation && room.pendingActivation.playerId === playerId) {
+    setTimeout(() => {
+      if (room.pendingActivation && room.pendingActivation.playerId === playerId) {
+        autoConfirmPendingActivation(room, playerId);
+      }
+    }, 100);
+  }
+}
+
+/**
+ * Auto-resolve a pendingActivation. Entry point from handleTurnTimeout.
+ */
+function autoResolvePendingActivation(room, playerId) {
+  const pa = room.pendingActivation;
+  if (!pa) { clearTurnTimer(room); return; }
+  // Handle gerrymander redirect
+  if (pa.gerrymanderPlayerId === playerId || pa.playerId === playerId) {
+    autoConfirmPendingActivation(room, playerId);
+  } else {
+    clearTurnTimer(room);
+  }
+}
+
+/**
+ * Auto-confirm a pendingActivation with random valid choices.
+ * Maps effectType → socket event + auto-generated data.
+ */
+function autoConfirmPendingActivation(room, playerId) {
+  const pa = room.pendingActivation;
+  if (!pa) return;
+  const resolverPlayerId = pa.gerrymanderPlayerId || pa.playerId;
+  const et = pa.effectType;
+  console.log(`⏱️ Auto-confirming PA effectType="${et}" for ${room.players.get(resolverPlayerId)?.name || '?'}`);
+
+  // ── Student action choice → always attack ──
+  if (et === 'student-action-choice') {
+    _triggerSocketHandler(room, resolverPlayerId, 'student:chooseAction', { action: 'attack' });
+    // May set up damage-targets PA — auto-resolve that too
+    setTimeout(() => {
+      if (room.pendingActivation && room.pendingActivation.playerId === pa.playerId) {
+        autoConfirmPendingActivation(room, pa.playerId);
+      }
+    }, 100);
+    return;
+  }
+
+  // ── Damage targets ──
+  if (et === 'damage-targets' || et === 'metalhead-shred-target') {
+    const targets = autoPickTargets(room, pa.playerId, pa, 'damage', pa.targetsNeeded || 1);
+    if (targets.length > 0) {
+      const event = et === 'metalhead-shred-target' ? 'familiar:metalheadShred' : 'familiar:attack';
+      _triggerSocketHandler(room, resolverPlayerId, event, { targets });
+      return;
+    }
+  }
+
+  // ── Heal target ──
+  if (et === 'heal-target') {
+    const targets = autoPickTargets(room, pa.playerId, pa, 'heal', pa.targetsNeeded || 1);
+    if (targets.length > 0) {
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:heal', { targets });
+      return;
+    }
+  }
+
+  // ── Poison target ──
+  if (et === 'poison-target') {
+    const targets = autoPickTargets(room, pa.playerId, pa, 'damage', pa.targetsNeeded || 1);
+    if (targets.length > 0) {
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:poisonTarget', { targets });
+      return;
+    }
+  }
+
+  // ── Destroy snare ──
+  if (et === 'destroy-snare') {
+    for (const [pid, p] of room.players) {
+      if (pid === pa.playerId || p.left) continue;
+      if ((p.snares || []).length > 0) {
+        _triggerSocketHandler(room, resolverPlayerId, 'familiar:destroySnare', { playerId: pid, snareIndex: 0 });
+        return;
+      }
+    }
+  }
+
+  // ── Destroy equip ──
+  if (et === 'destroy-equip') {
+    for (const [pid, p] of room.players) {
+      if (pid === pa.playerId || p.left) continue;
+      if ((p.equips || []).length > 0) {
+        _triggerSocketHandler(room, resolverPlayerId, 'familiar:destroyEquip', { playerId: pid, equipIndex: 0 });
+        return;
+      }
+    }
+  }
+
+  // ── Raccoon bounce ──
+  if (et === 'raccoon-bounce') {
+    const targets = autoPickTargets(room, pa.playerId, pa, 'damage', 1);
+    if (targets.length > 0) {
+      const t = targets[0];
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:raccoonBounce', {
+        targetPlayerId: t.playerId, targetType: t.type, targetIndex: t.familiarIndex,
+      });
+      return;
+    }
+  }
+
+  // ── Snowman exhaust ──
+  if (et === 'snowman-exhaust') {
+    const targets = autoPickTargets(room, pa.playerId, pa, 'damage', 1);
+    if (targets.length > 0) {
+      const t = targets[0];
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:snowmanExhaust', {
+        targetPlayerId: t.playerId, targetType: t.type, targetFamiliarIndex: t.familiarIndex,
+      });
+      return;
+    }
+  }
+
+  // ── Sneeze rocket AoE target ──
+  if (et === 'sneeze-rocket-aoe') {
+    for (const [pid, p] of room.players) {
+      if (pid === pa.playerId || p.left || p.won) continue;
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:sneezeRocketAoe', { targetPlayerId: pid });
+      return;
+    }
+  }
+
+  // ── Awaiting discard (forced) ──
+  if (et === 'awaiting-discard') {
+    const dpid = pa.discardPlayerId || pa.playerId;
+    const dp = room.players.get(dpid);
+    if (dp && (dp.hand || []).length > 0) {
+      const idx = Math.floor(Math.random() * dp.hand.length);
+      _triggerSocketHandler(room, dpid, 'familiar:forcedDiscard', { cardIndex: idx });
+      return;
+    }
+  }
+
+  // ── Metalhead shred equip pick ──
+  if (et === 'metalhead-shred') {
+    const owner = room.players.get(pa.playerId);
+    if (owner && (owner.equips || []).length > 0) {
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:metalheadShredEquip', { equipIndex: 0 });
+      setTimeout(() => {
+        if (room.pendingActivation && room.pendingActivation.effectType === 'metalhead-shred-target') {
+          autoConfirmPendingActivation(room, pa.playerId);
+        }
+      }, 100);
+      return;
+    }
+  }
+
+  // ── Select opponent (Vermin, etc.) ──
+  if (et === 'select-opponent') {
+    const opponents = [];
+    for (const [pid, p] of room.players) {
+      if (pid === pa.playerId || p.left || p.won) continue;
+      if (pa.opponentAction === 'force-discard' && p.hand.length === 0) continue;
+      opponents.push(pid);
+    }
+    if (opponents.length > 0) {
+      const pick = opponents[Math.floor(Math.random() * opponents.length)];
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:selectOpponent', { targetPlayerIds: [pick] });
+      return;
+    }
+  }
+
+  // ── Awaiting give (Vermin: give a card to opponent) ──
+  if (et === 'awaiting-give') {
+    const gpid = pa.givePlayerId || pa.playerId;
+    const gp = room.players.get(gpid);
+    if (gp && (gp.hand || []).length > 0) {
+      const idx = Math.floor(Math.random() * gp.hand.length);
+      _triggerSocketHandler(room, gpid, 'familiar:verminGive', { cardIndex: idx });
+      return;
+    }
+  }
+
+  // ── Awaiting clown give ──
+  if (et === 'awaiting-clown-give') {
+    const gpid = pa.givePlayerId || pa.playerId;
+    const gp = room.players.get(gpid);
+    if (gp && (gp.hand || []).length > 0) {
+      const indices = [Math.floor(Math.random() * gp.hand.length)];
+      _triggerSocketHandler(room, gpid, 'student:clownGive', { cardIndices: indices });
+      return;
+    }
+  }
+
+  // ── Exhaust familiar ──
+  if (et === 'exhaust-familiar' || et === 'deepsea-idol-exhaust' || et === 'vulture-exhaust' || et === 'snow-cannon-exhaust') {
+    const targets = autoPickTargets(room, pa.playerId, pa, 'damage', pa.targetsNeeded || 1);
+    if (targets.length > 0) {
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:attack', { targets });
+      return;
+    }
+  }
+
+  // ── Petrify, kill, delete, bounce, charm, hawk-strike, energize, bard-copy ──
+  // These all go through familiar:attack with their respective effectTypes
+  if (['petrify-target', 'kill-familiar', 'delete-familiar', 'bounce-familiar',
+       'charm-familiar', 'hawk-strike', 'energize', 'bard-copy',
+       'orc-skull-buff', 'leprechaun-bless', 'rains-blessing-target',
+       'giga-steroids-bless', 'storm-blade-bounce', 'sacrifice-attack',
+       'equip-damage-target', 'multi-energize'].includes(et)) {
+    const mode = ['heal-target', 'energize', 'orc-skull-buff', 'leprechaun-bless',
+                  'rains-blessing-target', 'giga-steroids-bless', 'multi-energize'].includes(et) ? 'heal' : 'damage';
+    const targets = autoPickTargets(room, pa.playerId, pa, mode, pa.targetsNeeded || 1);
+    if (targets.length > 0) {
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:attack', { targets });
+      return;
+    }
+  }
+
+  // ── Self discard (e.g. Flame Fairy cost) ──
+  if (et === 'self-discard') {
+    const player2 = room.players.get(pa.playerId);
+    if (player2 && (player2.hand || []).length > 0) {
+      const idx = Math.floor(Math.random() * player2.hand.length);
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:forcedDiscard', { cardIndex: idx });
+      return;
+    }
+  }
+
+  // ── Snare cost payment ──
+  if (et === 'snare-pay-cost') {
+    const payer = room.players.get(resolverPlayerId);
+    if (payer && (payer.hand || []).length > 0) {
+      const cost = pa.snareCost || 1;
+      const available = payer.hand.map((_, i) => i);
+      const indices = [];
+      for (let i = 0; i < Math.min(cost, available.length); i++) {
+        const pick = Math.floor(Math.random() * available.length);
+        indices.push(available.splice(pick, 1)[0]);
+      }
+      _triggerSocketHandler(room, resolverPlayerId, 'snare:pay', { paymentIndices: indices });
+      return;
+    }
+  }
+
+  // ── Spell-specific targeting: single-target damage spells ──
+  if (et === 'spell-damage-target' || et === 'burning-finger-target' || et === 'energy-drain-target'
+      || et === 'glacier-touch-target') {
+    const targets = autoPickTargets(room, pa.playerId, pa, 'damage', 1);
+    if (targets.length > 0) {
+      const t = targets[0];
+      const eventMap = {
+        'spell-damage-target': 'spellDamage:confirm',
+        'burning-finger-target': 'burningFinger:confirm',
+        'energy-drain-target': 'energyDrain:confirm',
+        'glacier-touch-target': 'glacierTouch:confirm',
+      };
+      const event = eventMap[et];
+      if (et === 'glacier-touch-target') {
+        _triggerSocketHandler(room, resolverPlayerId, event, {
+          targetPlayerId: t.playerId, targetType: t.type, targetFamiliarIndex: t.familiarIndex,
+        });
+      } else {
+        _triggerSocketHandler(room, resolverPlayerId, event, { target: t });
+      }
+      return;
+    }
+  }
+
+  // ── Sun Beam: single-target, defaults to damage mode ──
+  if (et === 'sun-beam-target') {
+    const targets = autoPickTargets(room, pa.playerId, pa, 'damage', 1);
+    if (targets.length > 0) {
+      _triggerSocketHandler(room, resolverPlayerId, 'sunBeam:confirm', { target: targets[0], mode: 'damage' });
+      return;
+    }
+  }
+
+  // ── Voodoo Curse: pick random opponent ──
+  if (et === 'voodoo-curse-target') {
+    for (const [pid, p] of room.players) {
+      if (pid === pa.playerId || p.left || p.won || p.studentDead) continue;
+      _triggerSocketHandler(room, resolverPlayerId, 'voodooCurse:confirm', { targetPlayerId: pid });
+      return;
+    }
+  }
+
+  // ── Curse familiar: pick random enemy familiar ──
+  if (et === 'curse-familiar-target') {
+    for (const [pid, p] of room.players) {
+      if (pid === pa.playerId || p.left) continue;
+      for (let fi = 0; fi < (p.familiars || []).length; fi++) {
+        if (p.familiars[fi] && p.familiars[fi].currentHp > 0) {
+          _triggerSocketHandler(room, resolverPlayerId, 'curse:confirm', { ownerPlayerId: pid, familiarIndex: fi });
+          return;
+        }
+      }
+    }
+  }
+
+  // ── Multi-energize / Sun Sword energize: pick random tapped allies ──
+  if (et === 'multi-energize' || et === 'sun-sword-energize') {
+    const p2 = room.players.get(pa.playerId);
+    if (p2) {
+      const tapped = (p2.tappedFamiliars || []).filter(fi => {
+        const f = p2.familiars[fi];
+        return f && f.currentHp > 0;
+      });
+      if (tapped.length > 0) {
+        const count = Math.min(pa.targetsNeeded || tapped.length, tapped.length);
+        const picked = [];
+        const pool = [...tapped];
+        for (let i = 0; i < count; i++) {
+          const idx = Math.floor(Math.random() * pool.length);
+          picked.push({ playerId: pa.playerId, type: 'familiar', familiarIndex: pool.splice(idx, 1)[0] });
+        }
+        const event = et === 'sun-sword-energize' ? 'familiar:sunSwordEnergize' : 'spell:multiEnergize';
+        _triggerSocketHandler(room, resolverPlayerId, event, { targets: picked });
+        return;
+      }
+    }
+  }
+
+  // ── Choose spell caster: pick first available ──
+  if (et === 'choose-spell-caster') {
+    const sources = pa.untappedSources || [];
+    if (sources.length > 0) {
+      const pick = sources[0];
+      _triggerSocketHandler(room, resolverPlayerId, 'familiar:chooseSpellCaster', {
+        source: pick.source, familiarIndex: pick.familiarIndex ?? -1,
+      });
+      // May set up a new PA for actual targeting
+      setTimeout(() => {
+        if (room.pendingActivation && room.pendingActivation.playerId === pa.playerId) {
+          autoConfirmPendingActivation(room, pa.playerId);
+        }
+      }, 100);
+      return;
+    }
+  }
+
+  // ── Detection: pick random opponent snares ──
+  if (et === 'detection-pick') {
+    const snares = [];
+    for (const [pid, p] of room.players) {
+      if (pid === pa.playerId || p.left) continue;
+      for (let si = 0; si < (p.snares || []).length; si++) {
+        snares.push({ playerId: pid, snareIndex: si });
+      }
+    }
+    if (snares.length > 0) {
+      const count = Math.min(pa.selectCount || 1, snares.length);
+      const picked = [];
+      for (let i = 0; i < count; i++) {
+        const idx = Math.floor(Math.random() * snares.length);
+        picked.push(snares.splice(idx, 1)[0]);
+      }
+      _triggerSocketHandler(room, resolverPlayerId, 'detection:confirm', { selectedSnares: picked });
+      return;
+    }
+  }
+
+  // ── Trap Sabotage: pick random opponent snares ──
+  if (et === 'trap-sabotage-pick') {
+    const snares = [];
+    for (const [pid, p] of room.players) {
+      if (pid === pa.playerId || p.left) continue;
+      for (let si = 0; si < (p.snares || []).length; si++) {
+        snares.push({ playerId: pid, snareIndex: si });
+      }
+    }
+    if (snares.length > 0) {
+      const count = Math.min(pa.selectCount || 1, snares.length);
+      const picked = [];
+      for (let i = 0; i < count; i++) {
+        const idx = Math.floor(Math.random() * snares.length);
+        picked.push(snares.splice(idx, 1)[0]);
+      }
+      _triggerSocketHandler(room, resolverPlayerId, 'trapSabotage:confirm', { selectedSnares: picked });
+      return;
+    }
+  }
+
+  // ── Create Illusion: pick random own familiar to copy ──
+  if (et === 'create-illusion-pick') {
+    const p2 = room.players.get(pa.playerId);
+    if (p2) {
+      for (let fi = 0; fi < (p2.familiars || []).length; fi++) {
+        const f = p2.familiars[fi];
+        if (f && f.currentHp > 0 && !f.isClone) {
+          _triggerSocketHandler(room, resolverPlayerId, 'createIllusion:confirm', {
+            ownerPlayerId: pa.playerId, familiarIndex: fi,
+          });
+          return;
+        }
+      }
+    }
+  }
+
+  // ── Fallback: tap source and advance ──
+  console.log(`⏱️ Auto-confirm fallback for effectType="${et}" — tapping source and advancing`);
+  const player = room.players.get(pa.playerId);
+  if (player) {
+    // Commit any held spell/item cards that were removed from hand but not yet discarded
+    if (pa.heldCard) {
+      if (pa.heldPayment && pa.heldPayment.length > 0) {
+        discardFromHand(room, pa.playerId, player, pa.heldPayment);
+      }
+      player.discardPile.push(pa.heldCard);
+      // Spell/item cast = student taps
+      if (pa.spellCaster && pa.spellCaster.type === 'familiar' && pa.spellCaster.familiarIndex >= 0) {
+        tapFamiliar(player, pa.spellCaster.familiarIndex);
+      } else {
+        player.tappedStudent = true;
+      }
+      // Item usage consumed
+      if (pa.heldCard.type === 'Item' || pa.heldCard.type === 'Equip') {
+        player.itemUsedThisRound = true;
+      }
+      console.log(`⏱️ Discarded held card "${pa.heldCard.name}" + ${(pa.heldPayment || []).length} payment card(s) for ${player.name}`);
+    } else {
+      if (pa.sourceType === 'student') player.tappedStudent = true;
+      else if (pa.familiarIndex >= 0) tapFamiliar(player, pa.familiarIndex);
+    }
+  }
+  room.pendingActivation = null;
+  room.activeSpell = null;
+  room.activeSpellPlayer = null;
+  clearTurnTimer(room);
+  const transitioning = advanceExamTurn(room);
+  if (!transitioning) broadcastRoomState(room);
+}
+
+/**
+ * Get a player's socket by their ID.
+ */
+function getSocketById(room, playerId) {
+  return io.sockets.sockets.get(playerId) || null;
+}
+
+/**
+ * Pick random targets for an auto-resolved effect.
+ * mode: 'damage' (prefer enemies), 'heal' (prefer damaged allies)
+ */
+function autoPickTargets(room, playerId, pa, mode, count) {
+  const candidates = [];
+  for (const [pid, p] of room.players) {
+    if (p.left || p.won) continue;
+    const isAlly = pid === playerId;
+    const isFoe = !isAlly;
+
+    // Student
+    if (p.chosenStudent && !p.studentDead && !pa.familiarsOnly) {
+      let priority = 0;
+      if (mode === 'heal' && isAlly && p.chosenStudent.currentHp < (p.chosenStudent.hp || p.chosenStudent.maxHp || 999)) priority = 2;
+      else if (mode === 'damage' && isFoe) priority = 2;
+      candidates.push({ playerId: pid, type: 'student', familiarIndex: -1, priority });
+    }
+
+    // Familiars
+    for (let fi = 0; fi < (p.familiars || []).length; fi++) {
+      const f = p.familiars[fi];
+      if (!f || f.currentHp <= 0) continue;
+      if (!pa.canSelfTarget && pid === playerId && fi === pa.familiarIndex && pa.sourceType === 'familiar') continue;
+      if (pa.tappedOnly && !(p.tappedFamiliars || []).includes(fi)) continue;
+      let priority = 0;
+      if (mode === 'heal' && isAlly && f.currentHp < (f.hp || f.maxHp || 10)) priority = 2;
+      else if (mode === 'damage' && isFoe) priority = 2;
+      candidates.push({ playerId: pid, type: 'familiar', familiarIndex: fi, priority });
+    }
+  }
+
+  const targets = [];
+  for (let i = 0; i < Math.min(count, candidates.length); i++) {
+    const maxP = Math.max(...candidates.map(c => c.priority));
+    const top = candidates.filter(c => c.priority === maxP);
+    const pick = top[Math.floor(Math.random() * top.length)];
+    targets.push({ playerId: pick.playerId, type: pick.type, familiarIndex: pick.familiarIndex });
+    candidates.splice(candidates.indexOf(pick), 1);
+  }
+  return targets;
+}
+
+
 function advanceExamTurn(room) {
   // DON'T clear activeSpell here — let it persist for display
 
@@ -13010,7 +14224,7 @@ function advanceExamTurn(room) {
         const c = cheesePlayer.discardPile[i];
         if (c.type !== 'Familiar') continue;
         if (c.name === 'Gerrymander' && isGerrymanderOnBoard(room)) continue;
-        const cost = getEffectiveFamiliarCost(cheesePlayer, c.cost || 0, c.name);
+        const cost = getEffectiveFamiliarCost(cheesePlayer, c.cost || 0, c.name, room);
         if (cost === -1) continue; // variable-cost familiars can't be summoned this way
         if (cost <= handSize) {
           discardFamiliars.push({ discardIndex: i, card: c, cost });
@@ -13134,6 +14348,15 @@ function advanceExamTurn(room) {
       else if (famIdx >= 0 && famIdx < (currentPlayer.familiars || []).length
         && (currentPlayer.familiars[famIdx].currentHp || 0) > 0) {
 
+        // Verify the familiar at this index is still the SAME one that acted
+        // (it may have been bounced/removed and the index now points to a different familiar)
+        const expectedRef = currentPlayer._avgStudentPendingBonusFamRef;
+        if (expectedRef && currentPlayer.familiars[famIdx] !== expectedRef) {
+          // Familiar was removed/replaced — skip bonus without consuming it
+          console.log(`📓 Average Student bonus skipped — original familiar no longer at index ${famIdx}`);
+          currentPlayer._avgStudentPendingBonusFamRef = undefined;
+        } else {
+        currentPlayer._avgStudentPendingBonusFamRef = undefined;
         currentPlayer.averageStudentBonusUsed = true;
 
         // Untap the familiar so it can act again
@@ -13158,6 +14381,7 @@ function advanceExamTurn(room) {
           setFamiliarTurnTracking(room, room.currentTurnId, famIdx);
         }
         if (!cpuOwnResult) console.log(`📓 Average Student bonus — ${currentPlayer.familiars[famIdx].name} has no valid action, skipping`);
+        } // end else (familiar reference matches)
       }
     }
   }
@@ -13220,10 +14444,7 @@ function advanceExamTurn(room) {
     room.livingGlacierEvent = { round: room.examRound || 1 };
     room.roundTransitioning = true;
     broadcastRoomState(room);
-    setTimeout(() => {
-      startNewExamRound(room);
-      if (!room.gameOver) broadcastRoomState(room);
-    }, 3500);
+    setTimeout(() => safeStartNewExamRound(room), 3500);
     return true;
   }
 
@@ -13262,10 +14483,7 @@ function advanceExamTurn(room) {
     // Delay before starting new round so the last tap is visible
     room.roundTransitioning = true;
     broadcastRoomState(room);
-    setTimeout(() => {
-      startNewExamRound(room);
-      if (!room.gameOver) broadcastRoomState(room);
-    }, 1200);
+    setTimeout(() => safeStartNewExamRound(room), 1200);
     return true;
   }
 
@@ -13279,18 +14497,17 @@ function advanceExamTurn(room) {
     const candidate = room.players.get(candidateId);
     if (candidate && !candidate.left && !candidate.disconnected && countUntappedTargets(candidate, room) > 0) {
       room.currentTurnId = candidateId;
+      startTurnTimer(room, candidateId);
       return false;
     }
     nextIdx = (nextIdx + 1) % room.examTurnOrder.length;
   }
 
   // All remaining players are tapped/disconnected/left — start new round
+  clearTurnTimer(room);
   room.roundTransitioning = true;
   broadcastRoomState(room);
-  setTimeout(() => {
-    startNewExamRound(room);
-    if (!room.gameOver) broadcastRoomState(room);
-  }, 1200);
+  setTimeout(() => safeStartNewExamRound(room), 1200);
   return true;
 }
 
@@ -13302,6 +14519,8 @@ function advanceExamTurnIfNeeded(room) {
   const current = room.players.get(room.currentTurnId);
   if (!current || current.left || current.disconnected || countUntappedTargets(current, room) === 0) {
     advanceExamTurn(room);
+  } else {
+    startTurnTimer(room, room.currentTurnId);
   }
 }
 
@@ -13316,7 +14535,7 @@ function advanceExamTurnIfNeeded(room) {
 function findAllWhiteBullIndices(player) {
   const result = [];
   for (let i = 0; i < (player.familiars || []).length; i++) {
-    if (player.familiars[i].whiteBullShield && player.familiars[i].currentHp > 0) {
+    if (player.familiars[i] && player.familiars[i].whiteBullShield && player.familiars[i].currentHp > 0) {
       result.push(i);
     }
   }
@@ -13352,6 +14571,7 @@ function countUntappedEnemyFamiliars(room, excludePlayerId) {
     if (p.id === excludePlayerId) continue;
     if (hasClassPetImmunity(p)) continue;
     for (let i = 0; i < (p.familiars || []).length; i++) {
+      if (!p.familiars[i]) continue;
       if (p.familiars[i].summoned) continue; // summoned students are immune to familiar-targeting
       if (isMechImmune(p.familiars[i])) continue;
       if (p.familiars[i].currentHp > 0 && !p.tappedFamiliars.includes(i)) count++;
@@ -13918,7 +15138,7 @@ function getSKSEligibleFamiliars(room, playerId) {
   (player.discardPile || []).forEach((card, i) => {
     if (card.type !== 'Familiar') return;
     if (card.name === 'Gerrymander' && isGerrymanderOnBoard(room)) return;
-    const cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name);
+    const cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name, room);
     if (cost === -1) {
       const minCost = card.minCost ?? 1;
       if (handSize >= minCost) {
@@ -14231,23 +15451,16 @@ function applyControlDeviceSteal(room, thiefId, targetOwnerId, familiarIndex) {
     familiar.controlDeviceOriginalOwner = targetOwnerId;
   }
 
-  // Remove from current owner's board
-  familiars.splice(familiarIndex, 1);
-
-  // Fix tappedFamiliars indices on source
-  targetOwner.tappedFamiliars = (targetOwner.tappedFamiliars || [])
-    .filter(ti => ti !== familiarIndex)
-    .map(ti => ti > familiarIndex ? ti - 1 : ti);
+  // Remove from current owner's board (null-slot preserves indices)
+  removeFamiliarSlot(targetOwner, familiarIndex);
 
   // Clear Harpy guards involving this familiar
   if (familiar.harpyGuardTarget) delete familiar.harpyGuardTarget;
   clearHarpyGuardsForLostTarget(targetOwner, 'familiar', familiarIndex);
-  adjustHarpyGuardIndices(targetOwner, familiarIndex);
 
   // Add to thief's board
   thief.familiars = thief.familiars || [];
-  thief.familiars.push(familiar);
-  const stolenIdx = thief.familiars.length - 1;
+  const stolenIdx = insertFamiliarSlot(thief, familiar);
 
   console.log(`📡 Control Device: ${thief.name} stole ${familiar.name} from ${targetOwner.name} (originalOwner: ${room.players.get(familiar.controlDeviceOriginalOwner)?.name})`);
 
@@ -14291,22 +15504,17 @@ function returnControlDeviceFamiliars(room) {
     const familiar = familiars[familiarIndex];
     if (!familiar) continue;
 
-    // Remove from current board
-    familiars.splice(familiarIndex, 1);
-    currentOwner.tappedFamiliars = (currentOwner.tappedFamiliars || [])
-      .filter(ti => ti !== familiarIndex)
-      .map(ti => ti > familiarIndex ? ti - 1 : ti);
+    // Remove from current board (null-slot preserves indices)
+    removeFamiliarSlot(currentOwner, familiarIndex);
     if (familiar.harpyGuardTarget) delete familiar.harpyGuardTarget;
     clearHarpyGuardsForLostTarget(currentOwner, 'familiar', familiarIndex);
-    adjustHarpyGuardIndices(currentOwner, familiarIndex);
 
     // Clear the stolen marker
     delete familiar.controlDeviceOriginalOwner;
 
     // Return to original owner
     originalOwner.familiars = originalOwner.familiars || [];
-    originalOwner.familiars.push(familiar);
-    const returnedIdx = originalOwner.familiars.length - 1;
+    const returnedIdx = insertFamiliarSlot(originalOwner, familiar);
 
     if (!room.controlDeviceReturnEvents) room.controlDeviceReturnEvents = [];
     room.controlDeviceReturnEvents.push({
@@ -16223,7 +17431,7 @@ function returnTreacherousCrystalLoans(room) {
       const returned = fams.splice(i, 1)[0];
       delete returned._tcLoanedFrom;
       // Preserve tapped state — do NOT untap on return
-      originalOwner.familiars.push(returned);
+      insertFamiliarSlot(originalOwner, returned);
       console.log(`💎 TC loan returned: ${returned.name} → back to ${originalOwner.name} (tapped: ${returned.tapped || false})`);
       if (!room.tcReturnEvents) room.tcReturnEvents = [];
       room.tcReturnEvents.push({ toPlayerId: originalOwnerId, familiarName: returned.name });
@@ -16489,6 +17697,7 @@ function countExhaustTargets(room, activatorPlayerId, activatorFamiliarIndex) {
       continue;
     }
     for (let i = 0; i < (p.familiars || []).length; i++) {
+      if (!p.familiars[i]) continue;
       if (p.id === activatorPlayerId && i === activatorFamiliarIndex) continue;
       if (p.familiars[i].summoned) continue;
       if (isMechImmune(p.familiars[i])) continue;
@@ -16533,6 +17742,7 @@ function countDeleteTargets(room, activatorPlayerId, activatorFamiliarIndex) {
   for (const p of getActivePlayers(room)) {
     if (hasClassPetImmunity(p)) continue;
     for (let i = 0; i < (p.familiars || []).length; i++) {
+      if (!p.familiars[i]) continue;
       if (p.id === activatorPlayerId && i === activatorFamiliarIndex) continue;
       if (p.familiars[i].summoned || isMechImmune(p.familiars[i])) continue;
       if (isGoldenHind(p.familiars[i])) continue; // Golden Hind cannot be deleted
@@ -16552,7 +17762,7 @@ function countAllDamageTargets(room, activatorPlayerId, activatorFamiliarIndex) 
     for (let i = 0; i < (p.familiars || []).length; i++) {
       if (p.id === activatorPlayerId && i === activatorFamiliarIndex) continue;
       if (isGoldenHind(p.familiars[i])) continue; // Golden Hind immune to damage
-      if ((p.familiars[i].currentHp || 0) > 0) count++;
+      if (p.familiars[i] && (p.familiars[i].currentHp || 0) > 0) count++;
     }
     if (p.chosenStudent && !p.studentDead) count++;
   }
@@ -16724,6 +17934,7 @@ function updateHistoricRecordsSnapshot(room) {
     if (p.left) continue;
     for (let i = 0; i < (p.familiars || []).length; i++) {
       const fam = p.familiars[i];
+      if (!fam) continue; // null slot (dead/removed familiar)
       if (fam.hrTrackId) continue; // already registered
       if ((fam.currentHp || 0) <= 0) continue;
       const trackId = `hr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -16818,24 +18029,20 @@ function executeHistoricRecords(room) {
       delete revived.undeadFishRevivePending;
       revived.currentHp = card.hrOriginalHp || card.hp;
 
-      // Insert at clamped original position
-      const insertIdx = Math.min(card.hrOriginalIndex || 0, ownerPlayer.familiars.length);
-      ownerPlayer.familiars.splice(insertIdx, 0, revived);
-
-      // Adjust tapped indices
-      ownerPlayer.tappedFamiliars = (ownerPlayer.tappedFamiliars || [])
-        .map(ti => ti >= insertIdx ? ti + 1 : ti);
+      // Insert at original position if null slot available, otherwise first available slot
+      let insertIdx;
+      const origIdx = card.hrOriginalIndex || 0;
+      if (origIdx < ownerPlayer.familiars.length && ownerPlayer.familiars[origIdx] === null) {
+        ownerPlayer.familiars[origIdx] = revived;
+        insertIdx = origIdx;
+      } else {
+        insertIdx = insertFamiliarSlot(ownerPlayer, revived);
+      }
 
       // Re-register in snapshot so it can be killed again and tracked
       const newTrackId = `hr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       revived.hrTrackId = newTrackId;
       if (room.historicRecordsSnapshot) {
-        // Shift existing snapshot indices for this owner that are at or above insertIdx
-        for (const snap of Object.values(room.historicRecordsSnapshot)) {
-          if (snap.playerId === ownerId && snap.originalIndex >= insertIdx) {
-            snap.originalIndex++;
-          }
-        }
         room.historicRecordsSnapshot[newTrackId] = {
           playerId: ownerId,
           originalIndex: insertIdx,
@@ -16862,7 +18069,7 @@ function countEligibleTappedTargets(room) {  let count = 0;
     // Tapped familiars (Class Pet / Mech blocks energize on familiars; petrified blocks energize)
     if (!hasClassPetImmunity(p)) {
       for (let i = 0; i < (p.familiars || []).length; i++) {
-        if (p.familiars[i].currentHp > 0 && !isMechImmune(p.familiars[i]) && !p.familiars[i].petrified && (p.tappedFamiliars || []).includes(i)) count++;
+        if (p.familiars[i] && p.familiars[i].currentHp > 0 && !isMechImmune(p.familiars[i]) && !p.familiars[i].petrified && (p.tappedFamiliars || []).includes(i)) count++;
       }
     }
   }
@@ -17906,12 +19113,17 @@ function resolveSpellEffect(room, spell, casterPlayerId, spellCaster = null) {
     if (result?.bigOopsiePending) {
       const _doBigOopsieDmg = () => {
         resolveTargetDamage(room, result.bigOopsieTargets, 10, casterPlayerId, { damageCategory: 'spell' });
-        broadcastRoomState(room);
+        drainFireshieldRecoils(room, () => drainBlastCandidates(room, () => drainElixirCandidates(room, () => drainShieldOfDeathCandidates(room, () => drainShieldOfLifeCandidates(room, () => drainSpikyArmorCandidates(room, () => drainAnkhCandidates(room, () => {
+          broadcastRoomState(room);
+        })))))));
       };
       if (result.bigOopsieTargets.length >= 2 && tryReversePrismSnare(room, result.bigOopsieTargets, _doBigOopsieDmg)) {
         return false; // Reverse Prism async — damage will fire in callback
       }
       resolveTargetDamage(room, result.bigOopsieTargets, 10, casterPlayerId, { damageCategory: 'spell' });
+      drainFireshieldRecoils(room, () => drainBlastCandidates(room, () => drainElixirCandidates(room, () => drainShieldOfDeathCandidates(room, () => drainShieldOfLifeCandidates(room, () => drainSpikyArmorCandidates(room, () => drainAnkhCandidates(room, () => {
+        broadcastRoomState(room);
+      })))))));
       return false;
     }
     // Armageddon via copy/CW/Mage — apply damage (with Reverse Prism check)
@@ -17939,14 +19151,19 @@ function resolveSpellEffect(room, spell, casterPlayerId, spellCaster = null) {
       };
       const _doArmaDmg = () => {
         resolveTargetDamage(room, result.armageddonTargets, result.armageddonDamage, casterPlayerId, { damageCategory: 'spell' });
-        _checkArmageddonEnd();
-        broadcastRoomState(room);
+        drainFireshieldRecoils(room, () => drainBlastCandidates(room, () => drainElixirCandidates(room, () => drainShieldOfDeathCandidates(room, () => drainShieldOfLifeCandidates(room, () => drainSpikyArmorCandidates(room, () => drainAnkhCandidates(room, () => {
+          _checkArmageddonEnd();
+          broadcastRoomState(room);
+        })))))));
       };
       if (result.armageddonTargets.length >= 2 && tryReversePrismSnare(room, result.armageddonTargets, _doArmaDmg)) {
         return false; // Reverse Prism async — damage + game-end check in callback
       }
       resolveTargetDamage(room, result.armageddonTargets, result.armageddonDamage, casterPlayerId, { damageCategory: 'spell' });
-      if (_checkArmageddonEnd()) return true;
+      drainFireshieldRecoils(room, () => drainBlastCandidates(room, () => drainElixirCandidates(room, () => drainShieldOfDeathCandidates(room, () => drainShieldOfLifeCandidates(room, () => drainSpikyArmorCandidates(room, () => drainAnkhCandidates(room, () => {
+        if (_checkArmageddonEnd()) { broadcastRoomState(room); return; }
+        broadcastRoomState(room);
+      })))))));
       return false;
     }
     // Great Filter via copy/CW/Mage — apply kills (with Reverse Prism check)
@@ -18464,7 +19681,7 @@ function bounceFamiliar(room, playerId, familiarIndex, instigatorId = null) {
   if (!player) return { bounced: null };
   if (familiarIndex < 0 || familiarIndex >= (player.familiars || []).length) return { bounced: null };
 
-  const familiar = player.familiars.splice(familiarIndex, 1)[0];
+  const familiar = removeFamiliarSlot(player, familiarIndex);
   if (!familiar) return { bounced: null };
 
   trackBoardRemoval(room, instigatorId, 1);
@@ -18512,9 +19729,8 @@ function bounceFamiliar(room, playerId, familiarIndex, instigatorId = null) {
     console.log(`🗡️ Harpy Warrior bounced — guard cleared`);
     delete familiar.harpyGuardTarget;
   }
-  // Clear any Harpy guard pointing to the bounced familiar, and adjust indices
+  // Clear any Harpy guard pointing to the bounced familiar
   clearHarpyGuardsForLostTarget(player, 'familiar', familiarIndex);
-  adjustHarpyGuardIndices(player, familiarIndex);
 
   familiar.revealed = true;
   player.hand.push(familiar);
@@ -18824,7 +20040,7 @@ function processFamiliarDeath(room, playerId, familiarIndex, cause = 'combat', i
   // Golden Hind can now die from damage normally
   const fam = player.familiars[familiarIndex];
 
-  const dead = player.familiars.splice(familiarIndex, 1)[0];
+  const dead = removeFamiliarSlot(player, familiarIndex);
   if (!dead) return { dead: null };
 
   // Deceptive Melody: track familiar killed by an opponent (not poison/self-destruct/recoil)
@@ -18915,10 +20131,7 @@ function processFamiliarDeath(room, playerId, familiarIndex, cause = 'combat', i
   }
   player.discardPile.push(discardCard);
 
-  // Remove dead slot from tappedFamiliars and remap higher indices
-  player.tappedFamiliars = player.tappedFamiliars
-    .filter(ti => ti !== familiarIndex)
-    .map(ti => ti > familiarIndex ? ti - 1 : ti);
+  // tappedFamiliars already cleaned by removeFamiliarSlot (indices are stable)
 
   console.log(`💀 ${dead.name} (${player.name}'s familiar #${familiarIndex}) died [${cause}]`);
 
@@ -18938,39 +20151,30 @@ function processFamiliarDeath(room, playerId, familiarIndex, cause = 'combat', i
     console.log(`🗡️ Harpy Warrior died — guard cleared from ${dead.harpyGuardTarget.type}`);
     // No need to clear on target since the Harpy itself is gone
   }
-  // Clear any Harpy guard pointing to the dead familiar, and adjust indices
+  // Clear any Harpy guard pointing to the dead familiar
   clearHarpyGuardsForLostTarget(player, 'familiar', familiarIndex);
-  adjustHarpyGuardIndices(player, familiarIndex);
 
-  // Adjust Sneeze Rocket Siren chain indices when familiars die
+  // Adjust Sneeze Rocket Siren chain when familiars die (indices are stable with null-slots)
   if (room.sneezeRocketSirenChain) {
     const chain = room.sneezeRocketSirenChain;
     if (playerId === chain.targetPlayerId) {
-      chain.queue = chain.queue
-        .filter(qi => qi !== familiarIndex)
-        .map(qi => qi > familiarIndex ? qi - 1 : qi);
+      chain.queue = chain.queue.filter(qi => qi !== familiarIndex);
     }
     if (playerId === (chain.famOwnerPlayerId || chain.playerId)) {
-      if (familiarIndex < chain.sirenIndex) {
-        chain.sirenIndex--;
-      } else if (familiarIndex === chain.sirenIndex) {
+      if (familiarIndex === chain.sirenIndex) {
         chain.sirenDead = true;
       }
     }
   }
 
-  // Adjust Sneeze Rocket Bard chain indices when familiars die
+  // Adjust Sneeze Rocket Bard chain when familiars die (indices are stable with null-slots)
   if (room.sneezeRocketBardChain) {
     const chain = room.sneezeRocketBardChain;
     if (playerId === chain.targetPlayerId) {
-      chain.queue = chain.queue
-        .filter(qi => qi !== familiarIndex)
-        .map(qi => qi > familiarIndex ? qi - 1 : qi);
+      chain.queue = chain.queue.filter(qi => qi !== familiarIndex);
     }
     if (playerId === (chain.famOwnerPlayerId || chain.playerId)) {
-      if (familiarIndex < chain.bardIndex) {
-        chain.bardIndex--;
-      } else if (familiarIndex === chain.bardIndex) {
+      if (familiarIndex === chain.bardIndex) {
         chain.bardDead = true;
       }
     }
@@ -19077,7 +20281,7 @@ function processFamiliarDeath(room, playerId, familiarIndex, cause = 'combat', i
     for (let i = 0; i < (player.hand || []).length; i++) {
       const c = player.hand[i];
       if (c.type !== 'Familiar' || excludeNames.has(c.name)) continue;
-      const effectiveCost = getEffectiveFamiliarCost(player, c.cost || 0, c.name);
+      const effectiveCost = getEffectiveFamiliarCost(player, c.cost || 0, c.name, room);
       if (effectiveCost <= 2) eligible.push({ source: 'hand', index: i, card: c });
     }
     if (!hasMummyGuardsLock(room)) {
@@ -19657,7 +20861,7 @@ function processCuteFamiliarReplaceQueue(room, afterFn) {
   for (let i = 0; i < (player.hand || []).length; i++) {
     const c = player.hand[i];
     if (c.type !== 'Familiar' || excludeNames.has(c.name)) continue;
-    const effectiveCost = getEffectiveFamiliarCost(player, c.cost || 0, c.name);
+    const effectiveCost = getEffectiveFamiliarCost(player, c.cost || 0, c.name, room);
     if (effectiveCost <= 2) eligible.push({ source: 'hand', index: i });
   }
   if (!hasMummyGuardsLock(room)) {
@@ -19702,7 +20906,7 @@ function getGoldenEggEligible(room, player, maxCost) {
     const c = player.hand[i];
     if (c.type !== 'Familiar' || c.name === 'Golden Egg') continue;
     if (gerryBlocked && c.name === 'Gerrymander') continue;
-    const effectiveCost = getEffectiveFamiliarCost(player, c.cost || 0, c.name);
+    const effectiveCost = getEffectiveFamiliarCost(player, c.cost || 0, c.name, room);
     if (effectiveCost >= 0 && effectiveCost <= maxCost) {
       eligible.push({ source: 'hand', index: i, name: c.name, path: c.path, cost: effectiveCost });
     }
@@ -20299,7 +21503,7 @@ function resolveNextChillyWizzySpell(room) {
 /**
  * Build per-player Chilly Wizzy reaction state for broadcast.
  */
-function buildChillyWizzyReactionState(cwr, playerId) {
+function buildChillyWizzyReactionState(cwr, playerId, room) {
   const base = {
     phase: cwr.phase,
     startedAt: cwr.startedAt,
@@ -20326,12 +21530,20 @@ function buildChillyWizzyReactionState(cwr, playerId) {
     }
     // Let ALL players know how many are still deciding
     let waiting = 0, total = 0;
-    for (const s of Object.values(cwr.playerStates)) {
+    const waitingNames = [];
+    for (const [pid, s] of Object.entries(cwr.playerStates)) {
       total++;
-      if (s !== 'ready' && s !== 'declined') waiting++;
+      if (s !== 'ready' && s !== 'declined') {
+        waiting++;
+        if (pid !== playerId && room) {
+          const p = room.players.get(pid);
+          if (p && !p.left) waitingNames.push(p.name);
+        }
+      }
     }
     base.waitingCount = waiting;
     base.totalCount = total;
+    base.waitingNames = waitingNames;
   } else if (cwr.phase === 'resolving') {
     const entry = cwr.queuedSpells[cwr.currentResolveIndex - 1];
     base.currentCasterId = entry?.playerId || null;
@@ -20590,15 +21802,30 @@ function buildSnareReactionState(sr, playerId) {
     ? sr.promptQueue[sr.promptIndex]
     : null;
 
+  // Build list of remaining players in the prompt queue (for waiting banner display)
+  const remainingPlayers = [];
+  if (sr.promptQueue && sr._room) {
+    for (let i = sr.promptIndex; i < sr.promptQueue.length; i++) {
+      const pid = sr.promptQueue[i];
+      if (pid === playerId) continue; // exclude the viewer
+      if (sr.responses[pid]) continue; // already responded
+      const p = sr._room.players.get(pid);
+      if (!p || p.left) continue;
+      remainingPlayers.push({ id: pid, name: p.name });
+    }
+  }
+
   const base = {
     phase: sr.phase,
     startedAt: sr.startedAt,
     timeoutMs: SNARE_TIMEOUT_MS,
     activatedPlayerId: sr.activatedPlayerId || null,
+    activatedPlayerName: (sr.activatedPlayerId && sr._room) ? (sr._room.players.get(sr.activatedPlayerId)?.name || null) : null,
     activatedSnareIndex: sr.activatedSnareIndex ?? null,
     activatedSnareName: sr.activatedSnareName || null,
     trigger: sr.trigger,
     currentPromptPlayerId: currentPromptPlayerId, // who is currently being asked
+    remainingPlayers, // all players still in the prompt queue (excluding viewer)
   };
   // Only send eligible snare info to the CURRENTLY PROMPTED player
   if (sr.phase === 'prompting' && playerId === currentPromptPlayerId && sr.eligible[playerId] && !sr.responses[playerId]) {
@@ -22661,11 +23888,22 @@ function _finalizeSnareChain(room) {
   if (!room.snareReaction) return;
   clearTimeout(room.snareReaction.timeoutId);
   const savedTrigger = room.snareReaction.trigger;
-  // For negating effects: use the REPLACED deferredFn (cleanup code that handles the negation)
-  // For non-negating effects: use the ORIGINAL trigger continuation
-  const deferred = room.snareReaction._triggerNegated
-    ? room.snareReaction.deferredFn
-    : (room.snareReaction._originalDeferredFn || room.snareReaction.deferredFn);
+  // For negating effects: use the REPLACED deferredFn (cleanup code that handles the negation).
+  // If the effect did NOT replace deferredFn (it's still the tagged queue-advancer), fall back
+  // to _originalDeferredFn — the original trigger continuation checks negation flags itself.
+  // For non-negating effects: use the ORIGINAL trigger continuation.
+  let deferred;
+  if (room.snareReaction._triggerNegated) {
+    if (room.snareReaction.deferredFn._isQueueAdvancer) {
+      // Effect set _triggerNegated but didn't replace deferredFn — use original continuation
+      deferred = room.snareReaction._originalDeferredFn || room.snareReaction.deferredFn;
+    } else {
+      // Effect replaced deferredFn with custom cleanup
+      deferred = room.snareReaction.deferredFn;
+    }
+  } else {
+    deferred = room.snareReaction._originalDeferredFn || room.snareReaction.deferredFn;
+  }
 
   // Friendly Fireball: restore saved animation events if no redirect happened
   // (i.e. FF was declined or a different snare fired — original animation should play)
@@ -22735,7 +23973,9 @@ function resolveActivatedSnare(room) {
   if (!sr._originalDeferredFn) {
     sr._originalDeferredFn = sr.deferredFn;
   }
-  sr.deferredFn = () => { finishSnareReaction(room); };
+  const _queueAdvancer = () => { finishSnareReaction(room); };
+  _queueAdvancer._isQueueAdvancer = true;
+  sr.deferredFn = _queueAdvancer;
 
   // ── Counter-snare check: Eclipse, Pillaged House, etc. can react to snare activation ──
   if (snare.name !== 'Eclipse') { // Eclipse can't trigger this check on its own activation
@@ -22816,7 +24056,7 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
         sourceValid = sourceOwner.chosenStudent && !sourceOwner.studentDead;
       } else if (trigger.sourceType === 'familiar') {
         const fi = trigger.sourceFamiliarIndex;
-        sourceValid = fi >= 0 && fi < sourceOwner.familiars.length && sourceOwner.familiars[fi].currentHp > 0;
+        sourceValid = fi >= 0 && fi < sourceOwner.familiars.length && sourceOwner.familiars[fi] && sourceOwner.familiars[fi].currentHp > 0;
       }
 
       if (sourceValid) {
@@ -22863,7 +24103,7 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
     const famOwner = room.players.get(trigger.familiarOwnerId);
     if (famOwner && !famOwner.left) {
       const fi = trigger.familiarIndex;
-      if (fi >= 0 && fi < (famOwner.familiars || []).length && famOwner.familiars[fi].currentHp > 0) {
+      if (fi >= 0 && fi < (famOwner.familiars || []).length && famOwner.familiars[fi] && famOwner.familiars[fi].currentHp > 0) {
         // Poison cloud animation at the familiar's position
         room.snareExplosionEvents = [{
           playerId: trigger.familiarOwnerId,
@@ -22872,7 +24112,7 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
           animation: 'poison-cloud',
         }];
 
-        console.log(`🍖🪤 ${snare.name} kills ${famOwner.name}'s ${famOwner.familiars[fi].name}!`);
+        console.log(`🍖🪤 ${snare.name} kills ${famOwner.name}'s ${famOwner.familiars[fi]?.name}!`);
 
         // Kill the familiar (triggers on-death effects like Cute Hydra, Ash Worms, etc.)
         processFamiliarDeath(room, trigger.familiarOwnerId, fi, 'snare', sr.activatedPlayerId);
@@ -22994,7 +24234,7 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
         if (_summoner && !_summoner.left && _kidnapper && !_kidnapper.left) {
           const _fi = trigger.familiarIndex;
           if (_fi >= 0 && _fi < (_summoner.familiars || []).length && _summoner.familiars[_fi]) {
-            const fam = _summoner.familiars.splice(_fi, 1)[0];
+            const fam = removeFamiliarSlot(_summoner, _fi);
 
             // Fix tappedFamiliars indices on summoner
             _summoner.tappedFamiliars = (_summoner.tappedFamiliars || [])
@@ -23004,7 +24244,6 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
             // Clear harpy guards involving this familiar
             if (fam.harpyGuardTarget) delete fam.harpyGuardTarget;
             clearHarpyGuardsForLostTarget(_summoner, 'familiar', _fi);
-            adjustHarpyGuardIndices(_summoner, _fi);
 
             // Clean up combat state so it's a normal hand card again
             delete fam.currentHp; delete fam.summoned;
@@ -23531,7 +24770,7 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
         const c = liveOwner.hand[i];
         if (c.type !== 'Familiar') continue;
         if (c.name === 'Gerrymander' && gerryBlocked) continue;
-        const effectiveCost = getEffectiveFamiliarCost(liveOwner, c.cost || 0, c.name);
+        const effectiveCost = getEffectiveFamiliarCost(liveOwner, c.cost || 0, c.name, room);
         if (effectiveCost <= 2) eligible.push({ index: i, name: c.name });
       }
 
@@ -23747,7 +24986,7 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
         delete card.sneezeRocketStacks; delete card.passiveNegated;
         delete card.controlDeviceOriginalOwner; delete card.summoned;
         tPlayer.familiars = tPlayer.familiars || [];
-        tPlayer.familiars.push(card);
+        insertFamiliarSlot(tPlayer, card);
         const newIdx = tPlayer.familiars.length - 1;
         tapFamiliar(tPlayer, newIdx);
         trackFamiliarGained(tPlayer);
@@ -23886,7 +25125,7 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
         }
 
         // Remove from original owner
-        sPlayer.familiars.splice(currentIdx, 1);
+        removeFamiliarSlot(sPlayer, currentIdx);
         sPlayer.tappedFamiliars = (sPlayer.tappedFamiliars || [])
           .filter(ti => ti !== currentIdx)
           .map(ti => ti > currentIdx ? ti - 1 : ti);
@@ -23894,7 +25133,6 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
         // Clear Harpy guards
         if (sourceFam.harpyGuardTarget) delete sourceFam.harpyGuardTarget;
         clearHarpyGuardsForLostTarget(sPlayer, 'familiar', currentIdx);
-        adjustHarpyGuardIndices(sPlayer, currentIdx);
 
         // Gorgon Sister: release petrified targets when stolen
         if (isGorgonSister(sourceFam)) {
@@ -23907,7 +25145,7 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
 
         // Add to thief's board (tapped)
         tPlayer.familiars = tPlayer.familiars || [];
-        tPlayer.familiars.push(sourceFam);
+        insertFamiliarSlot(tPlayer, sourceFam);
         const newIdx = tPlayer.familiars.length - 1;
         if (!tPlayer.tappedFamiliars) tPlayer.tappedFamiliars = [];
         tPlayer.tappedFamiliars.push(newIdx);
@@ -25349,7 +26587,7 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
       if (cardType === 'familiar') {
         const idx = (toPlayer.familiars || []).indexOf(cardRef);
         if (idx >= 0) {
-          toPlayer.familiars.splice(idx, 1);
+          removeFamiliarSlot(toPlayer, idx);
           // Fix tappedFamiliars
           toPlayer.tappedFamiliars = (toPlayer.tappedFamiliars || [])
             .filter(ti => ti !== idx)
@@ -25357,7 +26595,6 @@ function _continueSnareEffect(room, effect, snare, player, sr) {
           // Clear harpy guards
           if (cardRef.harpyGuardTarget) delete cardRef.harpyGuardTarget;
           clearHarpyGuardsForLostTarget(toPlayer, 'familiar', idx);
-          adjustHarpyGuardIndices(toPlayer, idx);
           // Gorgon Sister: release petrified targets
           if (isGorgonSister(cardRef)) resolveGorgonSisterDeath(room, cardRef);
           // Clean up combat/transfer markers
@@ -26099,14 +27336,18 @@ function resolvePostSnareLionPassives(room, afterFn) {
   }
 
   const _rawFinalize = afterFn || (() => {
-    // Trigger negated — finalize chain immediately (negation cleanup runs via _finalizeSnareChain)
-    if (room.snareReaction && room.snareReaction._triggerNegated) {
+    if (!room.snareReaction) return;
+    // Trigger negated — finalize chain immediately
+    if (room.snareReaction._triggerNegated) {
       _finalizeSnareChain(room);
-    // Non-negating: call deferredFn (picker setup or queue-advancer)
-    } else if (room.snareReaction && room.snareReaction.deferredFn) {
+    // Queue advancer (non-targeting snare via resolveActivatedSnare): call it directly
+    // to advance to next player in the prompt queue
+    } else if (room.snareReaction.deferredFn && room.snareReaction.deferredFn._isQueueAdvancer) {
       room.snareReaction.deferredFn();
+    // Targeting snare (deferredFn is the original continuation, resolveActivatedSnare never ran):
+    // go through _finalizeSnareChain to properly clear snareReaction before calling continuation
     } else {
-      finishSnareReaction(room);
+      _finalizeSnareChain(room);
     }
   });
   const _finalize = () => {
@@ -27061,20 +28302,23 @@ function broadcastRoomState(room) {
     }
   }
 
+  // ── Turn Timer: auto-pause/resume based on agency ──
+  updateTurnTimerPauseState(room);
+
   for (const [sid, player] of room.players) {
     // Don't send state to players who left or are disconnected
     if (player.left || player.disconnected) continue;
 
     const others = [];
     for (const [osid, op] of room.players) {
-      if (osid !== sid) others.push(getPublicPlayerData(op, room.phase, sid));
+      if (osid !== sid) others.push(getPublicPlayerData(op, room.phase, sid, room));
     }
 
     io.to(sid).emit('game:state', {
       phase: room.phase,
       proctors: room.proctors,
       you: {
-        ...getPublicPlayerData(player, room.phase, sid),
+        ...getPublicPlayerData(player, room.phase, sid, room),
         hand: player.hand.map(c => {
           if (c.type === 'Spell' && !isSpellCastable(room, c, player, sid)) {
             return { ...c, spellUncastable: true };
@@ -27162,6 +28406,27 @@ function broadcastRoomState(room) {
       others,
       playerCount: room.players.size,
       hostId: room.hostId,
+      turnTimerEnabled: room.turnTimerEnabled || false,
+      turnTimer: room.turnTimer ? {
+        playerId: room.turnTimer.playerId,
+        startedAt: room.turnTimer.startedAt,
+        elapsed: room.turnTimer.elapsed || 0,
+        duration: room.turnTimer.duration,
+        paused: !!room.turnTimer.pausedAt,
+      } : null,
+      snarePrepTimer: room._snarePrepTimerStart ? {
+        startedAt: room._snarePrepTimerStart,
+        duration: room._snarePrepTimerDuration || 60000,
+      } : null,
+      subPhaseTimer: room._subPhaseTimerStart ? {
+        startedAt: room._subPhaseTimerStart,
+        duration: room._subPhaseTimerDuration || 30000,
+      } : null,
+      interjectionTimer: room._interjectionTimer ? {
+        playerId: room._interjectionTimer.playerId,
+        startedAt: room._interjectionTimer.startedAt,
+        duration: room._interjectionTimer.duration,
+      } : null,
       currentTurnId: room.currentTurnId,
       prepTurnOrder: room.prepTurnOrder,
       examRound: room.examRound || 0,
@@ -27435,7 +28700,7 @@ function broadcastRoomState(room) {
         eligibleTargets: room.pendingOverchargedTrap.playerId === sid ? room.pendingOverchargedTrap.eligibleTargets : [],
         startedAt: room.pendingOverchargedTrap.startedAt,
       } : null,
-      chillyWizzyReaction: room.chillyWizzyReaction ? buildChillyWizzyReactionState(room.chillyWizzyReaction, sid) : null,
+      chillyWizzyReaction: room.chillyWizzyReaction ? buildChillyWizzyReactionState(room.chillyWizzyReaction, sid, room) : null,
       jetpackReaction: room.pendingJetpackReaction ? buildJetpackReactionState(room.pendingJetpackReaction, sid) : null,
       coolKidProtect: room.pendingCoolKidProtect ? buildCoolKidProtectState(room.pendingCoolKidProtect, sid) : null,
       pendingElixir: room.pendingElixir ? {
@@ -27616,6 +28881,11 @@ function broadcastRoomState(room) {
         };
       })() : null,
       magnetRedirectPending: !!(room.pendingMagnetRedirect),
+      magnetRedirectPlayerNames: room.pendingMagnetRedirect
+        ? Object.keys(room.pendingMagnetRedirect.players)
+            .filter(pid => pid !== sid)
+            .map(pid => room.players.get(pid)?.name || '?')
+        : null,
       pendingSnowmanExhaust: room.pendingSnowmanExhaust ? {
         playerId: room.pendingSnowmanExhaust.playerId,
         playerName: room.pendingSnowmanExhaust.playerName,
@@ -27721,7 +28991,7 @@ function broadcastRoomState(room) {
         for (let i = 0; i < (owner?.hand || []).length; i++) {
           const c = owner.hand[i];
           if (c.type !== 'Familiar' || excludeNames.has(c.name)) continue;
-          const effectiveCost = getEffectiveFamiliarCost(owner, c.cost || 0, c.name);
+          const effectiveCost = getEffectiveFamiliarCost(owner, c.cost || 0, c.name, room);
           if (effectiveCost <= 2) eligibleCards.push({ source: 'hand', index: i, name: c.name, path: c.path, cost: effectiveCost });
         }
         // Discard familiars: base cost ≤ 2 (skipped while discard is locked)
@@ -27749,7 +29019,7 @@ function broadcastRoomState(room) {
           const c = owner.hand[i];
           if (c.type !== 'Familiar') continue;
           if (c.name === 'Gerrymander' && gerryBlocked) continue;
-          const effectiveCost = getEffectiveFamiliarCost(owner, c.cost || 0, c.name);
+          const effectiveCost = getEffectiveFamiliarCost(owner, c.cost || 0, c.name, room);
           if (effectiveCost <= 2) eligibleCards.push({ index: i, name: c.name, path: c.path, cost: effectiveCost });
         }
         return {
@@ -27799,6 +29069,7 @@ function broadcastRoomState(room) {
       revealedStealSnare: room.revealedStealSnare || null,
       damageEvents: room.damageEvents || [],
       healEvents: room.healEvents || [],
+      pingEvents: room.pingEvents || [],
       orcSkullEvents: room.orcSkullEvents || [],
       portalActivationEvents: room.portalActivationEvents || [],
       auraEvents: room.auraEvents || [],
@@ -27858,6 +29129,9 @@ function broadcastRoomState(room) {
         isMyTurn: room.pendingBirthdayPresent.pendingIds.includes(sid),
         isActivator: room.pendingBirthdayPresent.activatorId === sid,
         pendingCount: room.pendingBirthdayPresent.pendingIds.length,
+        pendingNames: room.pendingBirthdayPresent.pendingIds
+          .filter(pid => pid !== sid)
+          .map(pid => room.players.get(pid)?.name || '?'),
       } : null,
       pendingEnergyCore: (() => {
         const pec = room.pendingEnergyCore;
@@ -27865,6 +29139,9 @@ function broadcastRoomState(room) {
         return {
           isMyTurn: pec.pendingIds.includes(sid),
           pendingCount: pec.pendingIds.length,
+          pendingNames: pec.pendingIds
+            .filter(pid => pid !== sid)
+            .map(pid => room.players.get(pid)?.name || '?'),
           myDiscardPile: pec.pendingIds.includes(sid) ? (pec.discardSnapshots[sid] || []) : [],
         };
       })(),
@@ -27936,6 +29213,7 @@ function broadcastRoomState(room) {
       magicAmethystEvent: room.magicAmethystEvent || false,
       magicEmeraldEvent: room.magicEmeraldEvent || false,
       magneticPotionEvent: room.magneticPotionEvent || null,
+      ramEvents: room.ramEvents || [],
       historicRecordsEligible: hasHistoricRecordsTarget(room),
       goldenAppleEvents: room.goldenAppleEvents || [],
       goldenAppleRecoilEvents: room.goldenAppleRecoilEvents || [],
@@ -28016,6 +29294,7 @@ function broadcastRoomState(room) {
   room.winAnnouncements = [];
   room.damageEvents = [];
   room.healEvents = [];
+  room.pingEvents = [];
   room.orcSkullEvents = [];
   room.portalActivationEvents = [];
   room.neurotoxinEvent = null;
@@ -28095,6 +29374,7 @@ function broadcastRoomState(room) {
   room.spacialCreviceEvents = [];
   room.spiderAvalancheEvents = [];
   room.snareExplosionEvents = [];
+  room.ramEvents = [];
   room.pillagedHouseBurnEvents = [];
   room._potionOfGreedQueue = [];
   room.stormDamageEvents = [];
@@ -28627,6 +29907,17 @@ io.on('connection', (socket) => {
     broadcastRoomPeek(roomId);
   });
 
+  // ── Toggle Turn Timer ──────────────────────────────────────────────────────
+  socket.on('lobby:toggleTurnTimer', () => {
+    if (!currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.hostId !== socket.id) return;
+    if (room.phase !== 'lobby' && room.phase !== 'post-game-lobby') return;
+    room.turnTimerEnabled = !room.turnTimerEnabled;
+    console.log(`⏱️ Turn timer ${room.turnTimerEnabled ? 'ENABLED' : 'DISABLED'} in room ${currentRoom}`);
+    broadcastRoomState(room);
+  });
+
   // ── Start Game ─────────────────────────────────────────────────────────────
   socket.on('game:start', () => {
     if (!currentRoom) return;
@@ -28854,6 +30145,17 @@ io.on('connection', (socket) => {
     }
 
     broadcastRoomState(room);
+  });
+
+  // ── Considering Card (client notifies server when entering discard/cost mode) ──
+  socket.on('game:consideringCard', ({ cardIndex, selectedPayment }) => {
+    if (!currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room) return;
+    const player = room.players.get(socket.id);
+    if (!player || player.left) return;
+    player._consideringCard = (typeof cardIndex === 'number' && cardIndex >= 0) ? cardIndex : null;
+    player._consideringPayment = Array.isArray(selectedPayment) ? selectedPayment : null;
   });
 
   // ── Pass (during preparation) ──────────────────────────────────────────
@@ -29360,7 +30662,7 @@ io.on('connection', (socket) => {
           });
         }
         for (let i = 0; i < (target.familiars || []).length; i++) {
-          if (target.familiars[i].currentHp > 0) {
+          if (target.familiars[i] && target.familiars[i].currentHp > 0) {
             room.snareExplosionEvents.push({
               playerId: targetPlayerId, type: 'familiar', familiarIndex: i, animation: 'poison-cloud',
             });
@@ -30461,7 +31763,7 @@ io.on('connection', (socket) => {
       paidCost: paidCost,
     };
     delete newHydra.poisonStacks;
-    player.familiars.push(newHydra);
+    insertFamiliarSlot(player, newHydra);
     const newHydraIndex = player.familiars.length - 1;
     if (!room.hydraReviveEvents) room.hydraReviveEvents = [];
     room.hydraReviveEvents.push({ playerId: socket.id, familiarIndex: newHydraIndex });
@@ -30527,7 +31829,7 @@ io.on('connection', (socket) => {
     if (card.name === 'Gerrymander' && isGerrymanderOnBoard(room)) { socket.emit('error:msg', 'A Gerrymander is already in play!'); return; }
 
     // Cost + payment validation
-    let cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name);
+    let cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name, room);
     const isVariableCost = cost === -1;
     let sksProdigyFree = false;
     if (isVariableCost && consumeProdigyCostIgnore(room, player, prodigyIgnoreCost)) {
@@ -30569,7 +31871,7 @@ io.on('connection', (socket) => {
     delete card.timeCounters;
     if (isVariableCost) card.paidCost = effectivePaymentCount;
     if (card.name === 'Cute Hydra' && card.paidCost) { card.hp = 5 * card.paidCost; card.currentHp = card.hp; }
-    player.familiars.push(card);
+    insertFamiliarSlot(player, card);
     trackFamiliarGained(player);
     addToHistoricSnapshot(room, socket.id, card);
 
@@ -30672,7 +31974,7 @@ io.on('connection', (socket) => {
     phoenixCard.currentHp = phoenixCard.hp || 10;
     delete phoenixCard.poisonStacks;
     delete phoenixCard.timeCounters;
-    player.familiars.push(phoenixCard);
+    insertFamiliarSlot(player, phoenixCard);
     trackFamiliarGained(player);
     addToHistoricSnapshot(room, socket.id, phoenixCard);
 
@@ -30737,7 +32039,7 @@ io.on('connection', (socket) => {
     }
 
     // Calculate cost (uses the SUMMONER's cost modifiers, not the discard owner's)
-    let cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name);
+    let cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name, room);
     const isVariableCost = cost === -1;
 
     // Prodigy
@@ -30798,7 +32100,7 @@ io.on('connection', (socket) => {
       card.hp = 5 * card.paidCost;
       card.currentHp = card.hp;
     }
-    player.familiars.push(card);
+    insertFamiliarSlot(player, card);
     trackFamiliarGained(player);
     trackCardPlayed(player, card);
 
@@ -30903,7 +32205,7 @@ io.on('connection', (socket) => {
         return;
       }
 
-      let cost = getEffectiveFamiliarCost(player, gcCard.cost || 0, gcCard.name);
+      let cost = getEffectiveFamiliarCost(player, gcCard.cost || 0, gcCard.name, room);
       if (cost > 0 && consumeProdigyCostIgnore(room, player, prodigyIgnoreCost)) {
         cost = 0;
         paymentIndices = [];
@@ -30928,7 +32230,7 @@ io.on('connection', (socket) => {
       player.discardPile.splice(discardIndex, 1);
 
       gcCard.currentHp = gcCard.hp || 1;
-      player.familiars.push(gcCard);
+      insertFamiliarSlot(player, gcCard);
       if (!room.ashWormsSummonEvents) room.ashWormsSummonEvents = [];
       room.ashWormsSummonEvents.push({ playerId: socket.id, familiarIndex: player.familiars.length - 1 });
       trackFamiliarGained(player);
@@ -30976,7 +32278,7 @@ io.on('connection', (socket) => {
     }
 
     // Calculate cost (Transfer Student reduction applies)
-    let cost = getEffectiveFamiliarCost(player, famCard.cost || 0, famCard.name);
+    let cost = getEffectiveFamiliarCost(player, famCard.cost || 0, famCard.name, room);
     const isBunnyVariableCost = cost === -1;
 
     // Prodigy: ignore cost if charge is used
@@ -31058,7 +32360,7 @@ io.on('connection', (socket) => {
       famCard.hp = 5 * famCard.paidCost;
       famCard.currentHp = famCard.hp;
     }
-    player.familiars.push(famCard);
+    insertFamiliarSlot(player, famCard);
     if (!room.ashWormsSummonEvents) room.ashWormsSummonEvents = [];
     room.ashWormsSummonEvents.push({ playerId: socket.id, familiarIndex: player.familiars.length - 1 });
     trackFamiliarGained(player);
@@ -31343,6 +32645,10 @@ io.on('connection', (socket) => {
         { familiarsOnly: false, untappedOnly: true });
       if (tauntErr) { socket.emit('error:msg', tauntErr); return; }
 
+      // ── Ram animation ──
+      const _seSource = room.pendingSnowmanExhaust;
+      pushRamEvent(room, socket.id, 'familiar', _seSource.familiarIndex ?? -1, [{ playerId: targetPlayerId, type: 'student', familiarIndex: -1 }]);
+
       // Tap the student (blocked if Invisible)
       const srcNameS = room.pendingSnowmanExhaust.sourceName || 'Helicopter Snowman';
       if (tryConsumeInvisibleStack(room, targetOwner)) {
@@ -31389,6 +32695,10 @@ io.on('connection', (socket) => {
         [{ playerId: targetPlayerId, type: 'familiar', familiarIndex: fi }],
         { familiarsOnly: false, untappedOnly: true });
       if (tauntErr) { socket.emit('error:msg', tauntErr); return; }
+
+      // ── Ram animation ──
+      const _seSourceF = room.pendingSnowmanExhaust;
+      pushRamEvent(room, socket.id, 'familiar', _seSourceF.familiarIndex ?? -1, [{ playerId: targetPlayerId, type: 'familiar', familiarIndex: fi }]);
 
       // Tap the familiar
       forcedTapFamiliar(room, targetOwner, fi);
@@ -31452,7 +32762,7 @@ io.on('connection', (socket) => {
 
     // Validate cost: hand uses effective cost, discard uses base cost
     if (source === 'hand') {
-      const effectiveCost = getEffectiveFamiliarCost(player, card.cost || 0, card.name);
+      const effectiveCost = getEffectiveFamiliarCost(player, card.cost || 0, card.name, room);
       if (effectiveCost > 2) {
         socket.emit('error:msg', 'Familiar cost too high');
         return;
@@ -31468,8 +32778,8 @@ io.on('connection', (socket) => {
     // Remove the card from its source
     const [removed] = pile.splice(index, 1);
 
-    // Summon it at the insert index, tapped
-    const insertIdx = Math.min(pending.insertIndex, (player.familiars || []).length);
+    // Summon it at the insert index (null slot from dead familiar), or first available
+    const origIdx = pending.insertIndex;
     const replacement = {
       ...removed,
       currentHp: removed.hp || removed.currentHp || 1,
@@ -31477,10 +32787,15 @@ io.on('connection', (socket) => {
     };
     delete replacement.poisonStacks;
     delete replacement.sneezeRocketStacks;
-    player.familiars.splice(insertIdx, 0, replacement);
+    let insertIdx;
+    if (origIdx >= 0 && origIdx < (player.familiars || []).length && player.familiars[origIdx] === null) {
+      player.familiars[origIdx] = replacement;
+      insertIdx = origIdx;
+    } else {
+      insertIdx = insertFamiliarSlot(player, replacement);
+    }
 
-    // Tap it — adjust existing tapped indices first
-    player.tappedFamiliars = (player.tappedFamiliars || []).map(ti => ti >= insertIdx ? ti + 1 : ti);
+    // Tap the replacement
     player.tappedFamiliars.push(insertIdx);
 
     console.log(`💔✨ ${player.name} summons "${removed.name}" from ${source} to replace Cute Familiar at position ${insertIdx} (tapped)`);
@@ -31533,7 +32848,7 @@ io.on('connection', (socket) => {
     }
 
     // Validate effective cost ≤ 2
-    const effectiveCost = getEffectiveFamiliarCost(player, card.cost || 0, card.name);
+    const effectiveCost = getEffectiveFamiliarCost(player, card.cost || 0, card.name, room);
     if (effectiveCost > 2) {
       socket.emit('error:msg', 'Familiar cost too high');
       return;
@@ -31551,7 +32866,7 @@ io.on('connection', (socket) => {
     };
     delete summoned.poisonStacks;
     delete summoned.sneezeRocketStacks;
-    player.familiars.push(summoned);
+    insertFamiliarSlot(player, summoned);
     trackFamiliarGained(player);
 
     console.log(`🐴✨ ${player.name} summons "${removed.name}" from hand via Wooden Horse (untapped, cost ${effectiveCost})`);
@@ -31675,7 +32990,7 @@ io.on('connection', (socket) => {
 
     // Validate cost
     if (source === 'hand') {
-      const effectiveCost = getEffectiveFamiliarCost(player, card.cost || 0, card.name);
+      const effectiveCost = getEffectiveFamiliarCost(player, card.cost || 0, card.name, room);
       if (effectiveCost < 0 || effectiveCost > maxCost) {
         socket.emit('error:msg', 'Familiar cost too high');
         return;
@@ -31732,19 +33047,22 @@ io.on('connection', (socket) => {
     delete replacement.sneezeRocketStacks;
     delete replacement.hatchCounters;
     delete replacement.bombCounters;
-    player.familiars.splice(insertIdx, 0, replacement);
+    let finalIdx;
+    if (insertIdx >= 0 && insertIdx < (player.familiars || []).length && player.familiars[insertIdx] === null) {
+      player.familiars[insertIdx] = replacement;
+      finalIdx = insertIdx;
+    } else {
+      finalIdx = insertFamiliarSlot(player, replacement);
+    }
 
-    // Adjust existing tapped indices for the insertion
-    player.tappedFamiliars = (player.tappedFamiliars || []).map(ti => ti >= insertIdx ? ti + 1 : ti);
-
-    console.log(`🥚✨ ${player.name} hatches Golden Egg into "${removed.name}" from ${source} at position ${insertIdx} (untapped)`);
+    console.log(`🥚✨ ${player.name} hatches Golden Egg into "${removed.name}" from ${source} at position ${finalIdx} (untapped)`);
     trackCardPlayed(player, removed);
 
     // Reborn animation
-    room.rebornEvents.push({ playerId: socket.id, familiarIndex: insertIdx });
+    room.rebornEvents.push({ playerId: socket.id, familiarIndex: finalIdx });
 
     // Clone: if the summoned familiar is a Clone, prompt for target selection
-    if (setupOnSummonEffects(room, socket.id, insertIdx, () => {
+    if (setupOnSummonEffects(room, socket.id, finalIdx, () => {
       enforceGerrymanderUniqueness(room);
       resolveGoldenEggEntry(room, socket.id);
     })) {
@@ -31889,7 +33207,7 @@ io.on('connection', (socket) => {
     }
 
     // Calculate cost (should be 0 for Grave Crawler, but apply reductions for Summoning Circle familiars)
-    let cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name);
+    let cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name, room);
     const isVariableCost = cost === -1;
 
     // Angler Angel passive: reduce all prep-phase costs (only for fixed costs)
@@ -31971,7 +33289,7 @@ io.on('connection', (socket) => {
         card.currentHp = card.hp;
       }
     }
-    player.familiars.push(card);
+    insertFamiliarSlot(player, card);
     if (!room.ashWormsSummonEvents) room.ashWormsSummonEvents = [];
     room.ashWormsSummonEvents.push({ playerId: socket.id, familiarIndex: player.familiars.length - 1 });
     addToHistoricSnapshot(room, socket.id, card);
@@ -32044,6 +33362,8 @@ io.on('connection', (socket) => {
 
     const player = room.players.get(socket.id);
     if (!player || player.left) return;
+    player._consideringCard = null; // Clear cost-selection hint
+    player._consideringPayment = null;
 
     // Validate card index
     if (room.pendingBarbarianSword) return;
@@ -32103,11 +33423,13 @@ io.on('connection', (socket) => {
     const baseCost = card.cost || 0;
     let cost = baseCost;
     if (card.type === 'Spell') cost = getEffectiveSpellCost(player, baseCost, room, card, true);
-    else if (card.type === 'Familiar') cost = getEffectiveFamiliarCost(player, baseCost, card.name);
+    else if (card.type === 'Familiar') cost = getEffectiveFamiliarCost(player, baseCost, card.name, room);
     else {
-      // Items/Equips: apply Royal Corgi Royalty increase + Sinister Idol opponent penalty
+      // Items/Equips: apply Royal Corgi Royalty increase + passive + Sinister Idol opponent penalty
       const royaltyIncrease = (player.royaltyStacks || 0) * 2;
       if (royaltyIncrease > 0) cost += royaltyIncrease;
+      const corgiPenalty = getRoyalCorgiPenalty(room, socket.id);
+      if (corgiPenalty > 0) cost += corgiPenalty;
       if (card.type === 'Item') {
         const idolPenalty = getSinisterIdolPenalty(room, socket.id);
         if (idolPenalty > 0) cost += idolPenalty;
@@ -32364,7 +33686,7 @@ io.on('connection', (socket) => {
         card.hp = 5 * card.paidCost;
         card.currentHp = card.hp;
       }
-      player.familiars.push(card);
+      insertFamiliarSlot(player, card);
       if (!room.ashWormsSummonEvents) room.ashWormsSummonEvents = [];
       room.ashWormsSummonEvents.push({ playerId: socket.id, familiarIndex: player.familiars.length - 1 });
       trackFamiliarGained(player);
@@ -32632,8 +33954,10 @@ io.on('connection', (socket) => {
                 room._pendingSpellResolution = false;
                 startWeakeningCrystalChain(room, 10, r2.bigOopsieTargets, (wcDmg) => {
                   resolveTargetDamage(room, r2.bigOopsieTargets, wcDmg, socket.id, { damageCategory: 'spell' });
+                  drainFireshieldRecoils(room, () => drainBlastCandidates(room, () => drainElixirCandidates(room, () => drainShieldOfDeathCandidates(room, () => drainShieldOfLifeCandidates(room, () => drainSpikyArmorCandidates(room, () => drainAnkhCandidates(room, () => {
                   const transitioning = advanceExamTurn(room);
                   if (!transitioning) broadcastRoomState(room);
+                  })))))));
                 });
                 return;
               }
@@ -32683,6 +34007,7 @@ io.on('connection', (socket) => {
                 room._pendingSpellResolution = false;
                 startWeakeningCrystalChain(room, r2.armageddonDamage, r2.armageddonTargets, (wcDmg) => {
                   resolveTargetDamage(room, r2.armageddonTargets, wcDmg, socket.id, { damageCategory: 'spell' });
+                  drainFireshieldRecoils(room, () => drainBlastCandidates(room, () => drainElixirCandidates(room, () => drainShieldOfDeathCandidates(room, () => drainShieldOfLifeCandidates(room, () => drainSpikyArmorCandidates(room, () => drainAnkhCandidates(room, () => {
                   let anyStudentAlive = false;
                   for (const [, p2] of room.players) { if (!p2.left && !p2.won && p2.chosenStudent && !p2.studentDead) { anyStudentAlive = true; break; } }
                   if (!anyStudentAlive) {
@@ -32694,6 +34019,7 @@ io.on('connection', (socket) => {
                   }
                   const transitioning = advanceExamTurn(room);
                   if (!transitioning) broadcastRoomState(room);
+                  })))))));
                 });
                 return;
               }
@@ -32704,8 +34030,10 @@ io.on('connection', (socket) => {
                 room._pendingSpellResolution = false;
                 startWeakeningCrystalChain(room, 10, r2.bigOopsieTargets, (wcDmg) => {
                   resolveTargetDamage(room, r2.bigOopsieTargets, wcDmg, socket.id, { damageCategory: 'spell' });
+                  drainFireshieldRecoils(room, () => drainBlastCandidates(room, () => drainElixirCandidates(room, () => drainShieldOfDeathCandidates(room, () => drainShieldOfLifeCandidates(room, () => drainSpikyArmorCandidates(room, () => drainAnkhCandidates(room, () => {
                   const transitioning = advanceExamTurn(room);
                   if (!transitioning) broadcastRoomState(room);
+                  })))))));
                 });
                 return;
               }
@@ -32757,8 +34085,10 @@ io.on('connection', (socket) => {
             startWeakeningCrystalChain(room, 10, boTargets, (wcDmgBO) => {
               resolveTargetDamage(room, boTargets, wcDmgBO, boCasterId, { damageCategory: 'spell' });
               console.log(`💥 Big Oopsie! ${room.players.get(boCasterId)?.name} — ${boTargets.length} familiar(s) hit for ${wcDmgBO}`);
+              drainFireshieldRecoils(room, () => drainBlastCandidates(room, () => drainElixirCandidates(room, () => drainShieldOfDeathCandidates(room, () => drainShieldOfLifeCandidates(room, () => drainSpikyArmorCandidates(room, () => drainAnkhCandidates(room, () => {
               const transitioning = advanceExamTurn(room);
               if (!transitioning) broadcastRoomState(room);
+              })))))));
             });
             return;
           }
@@ -32772,6 +34102,7 @@ io.on('connection', (socket) => {
             room._pendingSpellResolution = false;
             startWeakeningCrystalChain(room, armDamage, armTargets, (wcDmgArm) => {
               resolveTargetDamage(room, armTargets, wcDmgArm, armCasterId, { damageCategory: 'spell' });
+              drainFireshieldRecoils(room, () => drainBlastCandidates(room, () => drainElixirCandidates(room, () => drainShieldOfDeathCandidates(room, () => drainShieldOfLifeCandidates(room, () => drainSpikyArmorCandidates(room, () => drainAnkhCandidates(room, () => {
               // Draw-breaker: if ALL remaining students are now dead, caster wins
               let anyStudentAlive = false;
               for (const [, p] of room.players) {
@@ -32795,6 +34126,7 @@ io.on('connection', (socket) => {
               }
               const transitioning = advanceExamTurn(room);
               if (!transitioning) broadcastRoomState(room);
+              })))))));
             });
             return;
           }
@@ -34583,6 +35915,8 @@ io.on('connection', (socket) => {
 
     const player = room.players.get(socket.id);
     if (!player || player.left) return;
+    player._consideringCard = null; // Clear cost-selection hint
+    player._consideringPayment = null;
 
     if (target === 'student') {
       if (player.tappedStudent) {
@@ -34989,7 +36323,7 @@ io.on('connection', (socket) => {
       }
     } else if (t.type === 'familiar') {
       const fi = t.familiarIndex;
-      if (fi < 0 || fi >= targetOwner.familiars.length || targetOwner.familiars[fi].currentHp <= 0) {
+      if (fi < 0 || fi >= targetOwner.familiars.length || !targetOwner.familiars[fi] || targetOwner.familiars[fi].currentHp <= 0) {
         socket.emit('error:msg', 'Invalid target: familiar is dead');
         return;
       }
@@ -35125,7 +36459,7 @@ io.on('connection', (socket) => {
         }
       } else if (t.type === 'familiar') {
         const fi = t.familiarIndex;
-        if (fi < 0 || fi >= owner.familiars.length || owner.familiars[fi].currentHp <= 0) {
+        if (fi < 0 || fi >= owner.familiars.length || !owner.familiars[fi] || owner.familiars[fi].currentHp <= 0) {
           socket.emit('error:msg', 'Invalid target: familiar is dead');
           return;
         }
@@ -35144,6 +36478,9 @@ io.on('connection', (socket) => {
 
     const healAmount = pa.healAmount || 0;
     console.log(`💚 ${player.name}'s ${pa.familiarName} heals ${targets.length} target(s) for ${healAmount}`);
+
+    // ── Ram animation ──
+    pushRamEvent(room, pa.playerId, pa.sourceType, pa.familiarIndex, targets);
 
     // ── Induce Fear: familiar active effect targets a student ──
     // ── Letter of Lies: redirect single-target heal ──
@@ -35288,6 +36625,9 @@ io.on('connection', (socket) => {
     const tauntErr = validateTauntingRestriction(room, pa.playerId, [target], { sourceType: pa.sourceType });
     if (tauntErr) { socket.emit('error:msg', tauntErr); return; }
 
+    // ── Ram animation ──
+    pushRamEvent(room, pa.playerId, pa.sourceType || 'familiar', pa.familiarIndex, [{ playerId: target.playerId, type: 'familiar', familiarIndex: fi }]);
+
     // ── Letter of Lies: redirect single-target Nature Fairy heal ──
     const _nfTargets = [{ playerId: target.playerId, type: 'familiar', familiarIndex: fi }];
     if (tryLetterOfLiesRedirect(room, pa.playerId, pa.familiarIndex ?? -1, _nfTargets,
@@ -35373,6 +36713,9 @@ io.on('connection', (socket) => {
     const tauntErrPoison = validateTauntingRestriction(room, pa.playerId, targets, { sourceType: pa.sourceType });
     if (tauntErrPoison) { socket.emit('error:msg', tauntErrPoison); return; }
 
+    // ── Ram animation ──
+    pushRamEvent(room, pa.playerId, pa.sourceType, pa.familiarIndex, targets);
+
     // ── Induce Fear: familiar active effect targets a student ──
     // ── Letter of Lies: redirect single-target poison ──
     const _doPoisonAfterLoL = () => {
@@ -35407,7 +36750,7 @@ io.on('connection', (socket) => {
         }
       } else if (t.type === 'familiar') {
         const fi = t.familiarIndex;
-        if (fi < 0 || fi >= owner.familiars.length || owner.familiars[fi].currentHp <= 0) continue;
+        if (fi < 0 || fi >= owner.familiars.length || !owner.familiars[fi] || owner.familiars[fi].currentHp <= 0) continue;
         if (hasClassPetImmunity(owner) || isMechImmune(owner.familiars[fi]) || hasDreamDust(owner.familiars[fi], socket.id, owner.id)) {
           console.log(`🐾 ${owner.familiars[fi].name} is immune to poison (Class Pet / Mech)`);
           continue;
@@ -37826,7 +39169,7 @@ io.on('connection', (socket) => {
             for (const [pid, p] of room.players) {
               if (p.left) continue;
               for (let i = 0; i < (p.familiars || []).length; i++) {
-                if (p.familiars[i].currentHp > 0) {
+                if (p.familiars[i] && p.familiars[i].currentHp > 0) {
                   if (pid === srcOwnerId && i === adjustedSourceIndex) continue;
                   otherFamCount++;
                 }
@@ -38509,7 +39852,7 @@ io.on('connection', (socket) => {
         }
       } else if (t.type === 'familiar') {
         const fi = t.familiarIndex;
-        if (fi < 0 || fi >= owner.familiars.length || owner.familiars[fi].currentHp <= 0) {
+        if (fi < 0 || fi >= owner.familiars.length || !owner.familiars[fi] || owner.familiars[fi].currentHp <= 0) {
           socket.emit('error:msg', 'Invalid target: familiar is dead');
           return;
         }
@@ -38581,6 +39924,9 @@ io.on('connection', (socket) => {
         return;
       }
     }
+
+    // ── Ram animation: source entity flies to targets ──
+    pushRamEvent(room, pa.playerId, pa.sourceType, pa.familiarIndex, targets);
 
     // Apply damage (with optional per-type override)
     // ── Anti-Magnet: wrap resolution in closure for redirect interception ──
@@ -38978,16 +40324,15 @@ io.on('connection', (socket) => {
       toSteal.reverse();
       for (const { owner, ownerId, adjustedIdx, fam } of toSteal) {
         // Remove from previous owner
-        owner.familiars.splice(adjustedIdx, 1);
+        removeFamiliarSlot(owner, adjustedIdx);
         owner.tappedFamiliars = (owner.tappedFamiliars || [])
           .filter(ti => ti !== adjustedIdx)
           .map(ti => ti > adjustedIdx ? ti - 1 : ti);
         clearHarpyGuardsForLostTarget(owner, 'familiar', adjustedIdx);
-        adjustHarpyGuardIndices(owner, adjustedIdx);
         if (fam.harpyGuardTarget) delete fam.harpyGuardTarget;
         // Mark stolen and transfer to attacker
         fam.stolenFrom = ownerId;
-        player.familiars.push(fam);
+        insertFamiliarSlot(player, fam);
         trackFamiliarGained(player);
         const newIdx = player.familiars.length - 1;
         room.charmEvents.push({
@@ -39517,13 +40862,13 @@ io.on('connection', (socket) => {
       if (pa.chainOnKill && deaths.some(d => d.type === 'familiar')) {
         // Check Reaper is still alive
         if (adjustedSourceIndex >= 0 && adjustedSourceIndex < player.familiars.length
-            && player.familiars[adjustedSourceIndex].currentHp > 0) {
+            && player.familiars[adjustedSourceIndex] && player.familiars[adjustedSourceIndex].currentHp > 0) {
           // Count other living familiars (excluding self and Golden Hind)
           let otherFamCount = 0;
           for (const [pid, p] of room.players) {
             if (p.left) continue;
             for (let i = 0; i < (p.familiars || []).length; i++) {
-              if (p.familiars[i].currentHp > 0) {
+              if (p.familiars[i] && p.familiars[i].currentHp > 0) {
                 if (pid === socket.id && i === adjustedSourceIndex) continue;
                 if (isGoldenHind(p.familiars[i])) continue; // Golden Hind immune to damage
                 otherFamCount++;
@@ -39566,7 +40911,7 @@ io.on('connection', (socket) => {
       if (pa.selfHealAfter && pa.selfHealAfter > 0 && pa.sourceType === 'familiar') {
         // Check if source familiar is still alive (index may have shifted)
         if (adjustedSourceIndex >= 0 && adjustedSourceIndex < player.familiars.length
-            && player.familiars[adjustedSourceIndex].currentHp > 0) {
+            && player.familiars[adjustedSourceIndex] && player.familiars[adjustedSourceIndex].currentHp > 0) {
           const healTargets = [{
             playerId: socket.id,
             type: 'familiar',
@@ -39589,7 +40934,7 @@ io.on('connection', (socket) => {
       // Self-bounce after damage (Moonlight Butterfly etc.)
       if (pa.selfBounceAfter && pa.sourceType === 'familiar') {
         if (adjustedSourceIndex >= 0 && adjustedSourceIndex < player.familiars.length
-            && player.familiars[adjustedSourceIndex].currentHp > 0) {
+            && player.familiars[adjustedSourceIndex] && player.familiars[adjustedSourceIndex].currentHp > 0) {
           console.log(`🦋 ${pa.familiarName} bounces itself back to hand`);
           bounceFamiliar(room, socket.id, adjustedSourceIndex, null); // self-bounce: no Groundskeeper credit
         }
@@ -40508,7 +41853,7 @@ io.on('connection', (socket) => {
       }
     } else if (target.type === 'familiar') {
       const fi = target.familiarIndex;
-      if (fi < 0 || fi >= targetOwner.familiars.length || targetOwner.familiars[fi].currentHp <= 0) {
+      if (fi < 0 || fi >= targetOwner.familiars.length || !targetOwner.familiars[fi] || targetOwner.familiars[fi].currentHp <= 0) {
         socket.emit('error:msg', 'Invalid target: familiar is dead');
         return;
       }
@@ -41095,7 +42440,7 @@ io.on('connection', (socket) => {
         originalHocPath: hocCard ? hocCard.path : undefined,
         originalHocCost: hocCard ? (hocCard.cost || 0) : 0,
       };
-      player.familiars.push(familiar);
+      insertFamiliarSlot(player, familiar);
       addToHistoricSnapshot(room, socket.id, familiar);
       trackFamiliarGained(player);
       console.log(`🃏 Heart of Cards becomes "${revealedCard.name}" Familiar (hp=${familiar.hp})`);
@@ -41835,7 +43180,7 @@ io.on('connection', (socket) => {
         (p.discardPile || []).forEach((card, i) => {
           if (card.type !== 'Familiar') return;
           if (card.name === 'Gerrymander' && isGerrymanderOnBoard(room)) return;
-          const cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name);
+          const cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name, room);
           if (cost === -1) {
             const minCost = card.minCost ?? 1;
             if (handSize >= minCost) {
@@ -42780,6 +44125,9 @@ io.on('connection', (socket) => {
       { familiarsOnly: true, untappedOnly: true });
     if (tauntErrCharm) { socket.emit('error:msg', tauntErrCharm); return; }
 
+    // ── Ram animation ──
+    pushRamEvent(room, pa.playerId, pa.sourceType || 'familiar', pa.familiarIndex, [{ playerId: targetPlayerId, type: 'familiar', familiarIndex: fi }]);
+
     // ── Letter of Lies: redirect single-target charm ──
     const _charmTargets = [{ playerId: targetPlayerId, type: 'familiar', familiarIndex: fi }];
     if (tryLetterOfLiesRedirect(room, pa.playerId, pa.familiarIndex, _charmTargets,
@@ -43335,6 +44683,9 @@ io.on('connection', (socket) => {
 
     const gorgonId = pa.gorgonId;
 
+    // ── Ram animation ──
+    pushRamEvent(room, pa.playerId, pa.sourceType || 'familiar', pa.familiarIndex, [{ playerId: targetPlayerId, type: targetType, familiarIndex: targetFamiliarIndex }]);
+
     if (targetType === 'student') {
       if (!targetOwner.chosenStudent || targetOwner.studentDead || targetOwner.won || targetOwner.tappedStudent) {
         socket.emit('error:msg', 'Target student is not valid');
@@ -43650,6 +45001,9 @@ io.on('connection', (socket) => {
       { familiarsOnly: true, sourceType: pa.sourceType, sourceFamiliarIndex: pa.familiarIndex });
     if (tauntErrDel) { socket.emit('error:msg', tauntErrDel); return; }
 
+    // ── Ram animation ──
+    pushRamEvent(room, pa.playerId, pa.sourceType || 'familiar', pa.familiarIndex, [{ playerId: targetPlayerId, type: 'familiar', familiarIndex: fi }]);
+
     // Consume taunting stacks before deletion (target will be gone after)
     consumeTauntingStacks(room, pa.playerId, [{ playerId: targetPlayerId, type: 'familiar', familiarIndex: fi }]);
 
@@ -43726,6 +45080,9 @@ io.on('connection', (socket) => {
       [{ playerId: targetPlayerId, type: 'familiar', familiarIndex: fi }],
       { familiarsOnly: true, sourceType: pa.sourceType, sourceFamiliarIndex: pa.familiarIndex });
     if (tauntErrKill) { socket.emit('error:msg', tauntErrKill); return; }
+
+    // ── Ram animation ──
+    pushRamEvent(room, pa.playerId, pa.sourceType || 'familiar', pa.familiarIndex, [{ playerId: targetPlayerId, type: 'familiar', familiarIndex: fi }]);
 
     // Consume taunting stacks before kill (target will be gone after)
     consumeTauntingStacks(room, pa.playerId, [{ playerId: targetPlayerId, type: 'familiar', familiarIndex: fi }]);
@@ -43834,7 +45191,7 @@ io.on('connection', (socket) => {
     // Add to familiars with full HP
     card.currentHp = card.hp || 10;
     delete card.poisonStacks; // clear any poison from previous life
-    player.familiars.push(card);
+    insertFamiliarSlot(player, card);
     trackFamiliarGained(player);
     addToHistoricSnapshot(room, pa.playerId, card);
 
@@ -44028,7 +45385,7 @@ io.on('connection', (socket) => {
     card.currentHp = card.hp || 10;
     delete card.poisonStacks;
     delete card.tapped;
-    player.familiars.push(card);
+    insertFamiliarSlot(player, card);
     trackFamiliarGained(player);
     addToHistoricSnapshot(room, socket.id, card);
     const newIndex = player.familiars.length - 1;
@@ -44505,8 +45862,8 @@ io.on('connection', (socket) => {
 
     // Calculate total cost (Transfer Student reduces each Familiar by 1)
     let totalCost = 0;
-    for (const idx of handFamiliarIndices) totalCost += getEffectiveFamiliarCost(player, player.hand[idx].cost || 0, player.hand[idx].name);
-    for (const idx of discardFamiliarIndices) totalCost += getEffectiveFamiliarCost(player, player.discardPile[idx].cost || 0, player.discardPile[idx].name);
+    for (const idx of handFamiliarIndices) totalCost += getEffectiveFamiliarCost(player, player.hand[idx].cost || 0, player.hand[idx].name, room);
+    for (const idx of discardFamiliarIndices) totalCost += getEffectiveFamiliarCost(player, player.discardPile[idx].cost || 0, player.discardPile[idx].name, room);
 
     // Prodigy: ignore cost if charge is used
     if (totalCost > 0 && consumeProdigyCostIgnore(room, player, prodigyIgnoreCost)) {
@@ -44567,7 +45924,7 @@ io.on('connection', (socket) => {
     // Summon familiars
     for (const fam of toSummon) {
       fam.currentHp = fam.hp || 10;
-      player.familiars.push(fam);
+      insertFamiliarSlot(player, fam);
       trackFamiliarGained(player);
       addToHistoricSnapshot(room, socket.id, fam);
       trackCardPlayed(player, fam);
@@ -44832,14 +46189,14 @@ io.on('connection', (socket) => {
       return;
     }
     // Remove familiar from target owner
-    targetOwner.familiars.splice(fi, 1);
+    removeFamiliarSlot(targetOwner, fi);
     const wasTapped = targetOwner.tappedFamiliars.includes(fi);
     targetOwner.tappedFamiliars = targetOwner.tappedFamiliars
       .filter(i => i !== fi)
       .map(i => i > fi ? i - 1 : i);
 
     familiar.stolenFrom = targetPlayerId;
-    player.familiars.push(familiar);
+    insertFamiliarSlot(player, familiar);
     trackFamiliarGained(player);
     if ((pa.darkGear && !pa.loveShot) && wasTapped) {
       player.tappedFamiliars.push(player.familiars.length - 1);
@@ -45122,6 +46479,8 @@ io.on('connection', (socket) => {
         if (!transitioning) broadcastRoomState(room);
         return;
       }
+      // ── Ram animation ──
+      pushRamEvent(room, pa.playerId, pa.sourceType || 'familiar', pa.familiarIndex, [{ playerId: targetPlayerId, type: targetType, familiarIndex: targetFamiliarIndex ?? -1 }]);
       // ── Letter of Lies: redirect single-target energize ──
       const _enTargets = [{ playerId: targetPlayerId, type: targetType, familiarIndex: targetFamiliarIndex ?? -1 }];
       if (tryLetterOfLiesRedirect(room, pa.playerId, pa.familiarIndex ?? -1, _enTargets, pa.familiarName || 'Energize', { tappedOnly: true, immunityBlocks: true, petrifiedBlocks: true },
@@ -45709,7 +47068,7 @@ io.on('connection', (socket) => {
       illusionCopy: true,       // permanent tint flag
     };
 
-    player.familiars.push(illusion);
+    insertFamiliarSlot(player, illusion);
     const illusionIndex = player.familiars.length - 1;
     addToHistoricSnapshot(room, pa.playerId, illusion);
     trackFamiliarGained(player);
@@ -46223,13 +47582,16 @@ io.on('connection', (socket) => {
       // Kill sacrifice (triggers on-death effects)
       processFamiliarDeath(room, pa.playerId, fi, 'spell', pa.playerId);
 
-      // Summon replacement at same index (or end if spliced) — enters UNTAPPED
-      const insertIdx = Math.min(fi, p2.familiars.length);
+      // Summon replacement at same index (null slot from sacrifice) — enters UNTAPPED
       chosenCard.currentHp = chosenCard.hp || 10;
       delete chosenCard.summoned;
-      p2.familiars.splice(insertIdx, 0, chosenCard);
-      // Adjust existing tapped indices for the insertion before tapping the new familiar
-      p2.tappedFamiliars = (p2.tappedFamiliars || []).map(ti => ti >= insertIdx ? ti + 1 : ti);
+      let insertIdx;
+      if (fi >= 0 && fi < p2.familiars.length && p2.familiars[fi] === null) {
+        p2.familiars[fi] = chosenCard;
+        insertIdx = fi;
+      } else {
+        insertIdx = insertFamiliarSlot(p2, chosenCard);
+      }
       // Summoning Ritual: replacement enters TAPPED (it was ritually summoned, not naturally played)
       tapFamiliar(p2, insertIdx);
       trackFamiliarGained(p2);
@@ -46301,7 +47663,7 @@ io.on('connection', (socket) => {
     delete chosenCard.passiveNegated;
     delete chosenCard.controlDeviceOriginalOwner;
     player.familiars = player.familiars || [];
-    player.familiars.push(chosenCard);
+    insertFamiliarSlot(player, chosenCard);
     const newIdx = player.familiars.length - 1;
     tapFamiliar(player, newIdx);
     trackFamiliarGained(player);
@@ -46529,7 +47891,7 @@ io.on('connection', (socket) => {
     delete chosenCard.sneezeRocketStacks; delete chosenCard.passiveNegated;
     delete chosenCard.controlDeviceOriginalOwner; delete chosenCard.summoned;
     player.familiars = player.familiars || [];
-    player.familiars.push(chosenCard);
+    insertFamiliarSlot(player, chosenCard);
     const newIdx = player.familiars.length - 1;
     tapFamiliar(player, newIdx);
     trackFamiliarGained(player);
@@ -46791,13 +48153,16 @@ io.on('connection', (socket) => {
       // Kill sacrifice (triggers on-death effects)
       processFamiliarDeath(room, pa.playerId, fi, 'spell', pa.playerId);
 
-      // Summon replacement at same index — enters UNTAPPED (transformation, not ritual)
-      const insertIdx = Math.min(fi, p2.familiars.length);
+      // Summon replacement at same index (null slot from sacrifice) — enters UNTAPPED
       chosenCard.currentHp = chosenCard.hp || 10;
       delete chosenCard.summoned;
-      p2.familiars.splice(insertIdx, 0, chosenCard);
-      // Shift tappedFamiliars indices to account for the insertion
-      p2.tappedFamiliars = (p2.tappedFamiliars || []).map(ti => ti >= insertIdx ? ti + 1 : ti);
+      let insertIdx;
+      if (fi >= 0 && fi < p2.familiars.length && p2.familiars[fi] === null) {
+        p2.familiars[fi] = chosenCard;
+        insertIdx = fi;
+      } else {
+        insertIdx = insertFamiliarSlot(p2, chosenCard);
+      }
       // Do NOT tapFamiliar — Transformation summons untapped
       trackFamiliarGained(p2);
       addToHistoricSnapshot(room, pa.playerId, chosenCard);
@@ -50157,7 +51522,7 @@ io.on('connection', (socket) => {
     if (fromHand.name === 'Ash Worms' && fromHand.type === 'Familiar') {
       player.discardPile.splice(discardIndex, 1); // remove the slot (card already moved to hand)
       fromHand.currentHp = fromHand.hp || 10;
-      player.familiars.push(fromHand);
+      insertFamiliarSlot(player, fromHand);
       trackFamiliarGained(player);
       if (!room.ashWormsSummonEvents) room.ashWormsSummonEvents = [];
       room.ashWormsSummonEvents.push({ playerId: socket.id, familiarIndex: player.familiars.length - 1 });
@@ -51349,7 +52714,7 @@ io.on('connection', (socket) => {
       }
     } else if (t.type === 'familiar') {
       const fi = t.familiarIndex;
-      if (fi < 0 || fi >= targetOwner.familiars.length || targetOwner.familiars[fi].currentHp <= 0) {
+      if (fi < 0 || fi >= targetOwner.familiars.length || !targetOwner.familiars[fi] || targetOwner.familiars[fi].currentHp <= 0) {
         socket.emit('error:msg', 'Invalid target: familiar is dead');
         return;
       }
@@ -51803,7 +53168,7 @@ io.on('connection', (socket) => {
       }
     } else if (target.type === 'familiar') {
       const fi = target.familiarIndex;
-      if (typeof fi !== 'number' || fi < 0 || fi >= (owner.familiars || []).length || owner.familiars[fi].currentHp <= 0) {
+      if (typeof fi !== 'number' || fi < 0 || fi >= (owner.familiars || []).length || !owner.familiars[fi] || owner.familiars[fi].currentHp <= 0) {
         socket.emit('error:msg', 'That familiar is dead');
         return;
       }
@@ -51995,9 +53360,9 @@ io.on('connection', (socket) => {
     }
 
     // Move familiar: originalOwner → player, mark loan
-    const stolen = originalOwner.familiars.splice(familiarIndex, 1)[0];
+    const stolen = removeFamiliarSlot(originalOwner, familiarIndex);
     stolen._tcLoanedFrom = ownerId;
-    player.familiars.push(stolen);
+    insertFamiliarSlot(player, stolen);
 
     room.tcStealEvent = {
       thiefPlayerId: socket.id,
@@ -53208,7 +54573,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    let cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name);
+    let cost = getEffectiveFamiliarCost(player, card.cost || 0, card.name, room);
     if (cost === -1) {
       socket.emit('error:msg', 'Cannot summon variable-cost familiars');
       return;
@@ -53254,7 +54619,7 @@ io.on('connection', (socket) => {
     // Add to familiars with full HP
     card.currentHp = card.hp || 10;
     delete card.poisonStacks;
-    player.familiars.push(card);
+    insertFamiliarSlot(player, card);
     trackFamiliarGained(player);
     addToHistoricSnapshot(room, socket.id, card);
 
@@ -54061,6 +55426,31 @@ io.on('connection', (socket) => {
   });
 
   // ── Leave Game (voluntary) ──────────────────────────────────────────────
+  // ── Ping: highlight a card/player for all players to see ──────────────
+  socket.on('game:ping', ({ targetType, targetPlayerId, targetIndex, targetName }) => {
+    if (!currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room) return;
+    const player = room.players.get(socket.id);
+    if (!player || player.left) return;
+    // Rate limit: 1 ping per second per player
+    const now = Date.now();
+    if (player._lastPingAt && now - player._lastPingAt < 250) return;
+    player._lastPingAt = now;
+    const color = (room.playerColors || {})[socket.id] || '#ffffff';
+    if (!room.pingEvents) room.pingEvents = [];
+    room.pingEvents.push({
+      pingerId: socket.id,
+      pingerName: player.name,
+      pingerColor: color,
+      targetType: targetType || 'unknown',
+      targetPlayerId: targetPlayerId || null,
+      targetIndex: typeof targetIndex === 'number' ? targetIndex : -1,
+      targetName: targetName || null,
+    });
+    broadcastRoomState(room);
+  });
+
   socket.on('game:leave', () => {
     if (!currentRoom) return;
     const room = rooms.get(currentRoom);

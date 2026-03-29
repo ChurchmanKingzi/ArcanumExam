@@ -25,14 +25,14 @@ export function activeEffect(student, context) {
  * player controls any living familiars.
  */
 export function escapeCondition(player, room) {
-  const myLiving = (player.familiars || []).filter(f => (f.currentHp || 0) > 0).length;
+  const myLiving = (player.familiars || []).filter(f => f && (f.currentHp || 0) > 0).length;
   if (myLiving < 3) return false;
 
   for (const [pid, p] of room.players) {
     if (pid === player.id) continue;
     if (p.left || p.won) continue;
     // Dead-student players still count — they must have 0 living familiars
-    const otherLiving = (p.familiars || []).filter(f => (f.currentHp || 0) > 0).length;
+    const otherLiving = (p.familiars || []).filter(f => f && (f.currentHp || 0) > 0).length;
     if (otherLiving > 0) return false;
   }
   return true;

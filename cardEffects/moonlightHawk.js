@@ -15,7 +15,7 @@ export default function moonlightHawk(familiar, context) {
   for (const [pid, p] of room.players) {
     if (p.left || pid === player.id) continue;
     if (p.chosenStudent && !p.studentDead) { hasTarget = true; break; }
-    if ((p.familiars || []).some(f => f.currentHp > 0)) { hasTarget = true; break; }
+    if ((p.familiars || []).some(f => f && f.currentHp > 0)) { hasTarget = true; break; }
   }
 
   if (!hasTarget) return null;

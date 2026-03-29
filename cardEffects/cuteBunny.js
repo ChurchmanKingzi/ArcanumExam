@@ -24,7 +24,7 @@ export default function cuteBunny(familiar, context) {
   // Transfer Student reduction (check primary + summoned)
   const hasTransfer =
     (player.chosenStudent?.name === 'The Transfer Student' && !player.studentDead && !player.won) ||
-    (player.familiars || []).some(f => f.summoned && f.name === 'The Transfer Student' && (f.currentHp || 0) > 0);
+    (player.familiars || []).some(f => f && f.summoned && f.name === 'The Transfer Student' && (f.currentHp || 0) > 0);
   const costReduction = hasTransfer ? 1 : 0;
 
   // Prodigy can ignore cost entirely
