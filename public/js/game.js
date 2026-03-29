@@ -17,6 +17,7 @@ const $banner      = document.getElementById('phase-banner');
 const $bannerText  = document.getElementById('phase-text');
 const $zoom        = document.getElementById('card-zoom');
 const $zoomImg     = document.getElementById('card-zoom-img');
+const $zoomCloneLabel = document.getElementById('card-zoom-clone-label');
 const $studentSlot = document.getElementById('my-student-slot');
 const $discardSlot = document.getElementById('my-discard-slot');
 const $proctorGrid = document.getElementById('proctor-grid');
@@ -10070,9 +10071,15 @@ function setZoomable(el, imagePath) {
   else delete el.dataset.zoomSrc;
 }
 
-function showZoom(src) {
+function showZoom(src, cloneName) {
   $zoomImg.src = src;
   $zoom.classList.remove('hidden');
+  if (cloneName) {
+    $zoomCloneLabel.textContent = '🧬 ' + cloneName;
+    $zoomCloneLabel.classList.remove('hidden');
+  } else {
+    $zoomCloneLabel.classList.add('hidden');
+  }
 }
 
 function hideZoom() {
@@ -10086,7 +10093,7 @@ function unlockZoom() {
   // Immediately update to whatever is under cursor (or hide)
   const hovered = document.querySelector('[data-zoom-src]:hover');
   if (hovered) {
-    showZoom(hovered.dataset.zoomSrc);
+    showZoom(hovered.dataset.zoomSrc, hovered.dataset.cloneName || null);
   } else {
     hideZoom();
   }
@@ -10098,7 +10105,7 @@ document.addEventListener('mouseenter', (e) => {
   if (!(e.target instanceof Element)) return;
   const el = e.target.closest('[data-zoom-src]');
   if (!el) return;
-  showZoom(el.dataset.zoomSrc);
+  showZoom(el.dataset.zoomSrc, el.dataset.cloneName || null);
 }, true);
 
 document.addEventListener('mouseleave', (e) => {
@@ -10125,7 +10132,7 @@ document.addEventListener('click', (e) => {
     // Lock to this card
     zoomLocked = true;
     zoomLockedSrc = src;
-    showZoom(src);
+    showZoom(src, el.dataset.cloneName || null);
     $zoom.classList.add('zoom-locked');
     return;
   }
@@ -10143,7 +10150,7 @@ document.addEventListener('touchstart', (e) => {
     const src = el.dataset.zoomSrc;
     zoomLocked = true;
     zoomLockedSrc = src;
-    showZoom(src);
+    showZoom(src, el.dataset.cloneName || null);
     $zoom.classList.add('zoom-locked');
   } else if (zoomLocked) {
     unlockZoom();
@@ -10363,13 +10370,36 @@ function showPingFlash($el, color) {
   const $flash = document.createElement('div');
   $flash.className = 'ping-flash';
   $flash.style.setProperty('--ping-color', color);
-  // Position over the element
+
+  // Get the element's bounding rect (axis-aligned even if rotated)
   const rect = $el.getBoundingClientRect();
-  $flash.style.left = (rect.left - 6) + 'px';
-  $flash.style.top = (rect.top - 6) + 'px';
-  $flash.style.width = (rect.width + 12) + 'px';
-  $flash.style.height = (rect.height + 12) + 'px';
-  $flash.style.borderRadius = getComputedStyle($el).borderRadius || '8px';
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+
+  // Use the element's actual (un-rotated) dimensions
+  const w = $el.offsetWidth + 12;
+  const h = $el.offsetHeight + 12;
+
+  // Detect rotation from computed transform matrix
+  const cs = getComputedStyle($el);
+  const matrix = cs.transform;
+  let angle = 0;
+  if (matrix && matrix !== 'none') {
+    const match = matrix.match(/^matrix\((.+)\)$/);
+    if (match) {
+      const v = match[1].split(',').map(Number);
+      angle = Math.atan2(v[1], v[0]); // radians
+    }
+  }
+
+  $flash.style.left = (centerX - w / 2) + 'px';
+  $flash.style.top = (centerY - h / 2) + 'px';
+  $flash.style.width = w + 'px';
+  $flash.style.height = h + 'px';
+  $flash.style.borderRadius = cs.borderRadius || '8px';
+  if (angle !== 0) {
+    $flash.style.setProperty('--ping-rotate', `${angle}rad`);
+  }
   document.body.appendChild($flash);
   setTimeout(() => $flash.remove(), 1200);
 }
@@ -14367,6 +14397,7 @@ function renderOpponents(state) {
       if ((card.hatchCounters || 0) > 0)
         addOppFamBadge('hatch-counter-badge bomb-counter-badge bomb-counter-ready', '🥚' + card.hatchCounters, `Golden Egg: ${card.hatchCounters} hatch counter(s)`, 'Hatch Counters');
       if (card.isClone && card.cloneSourceName) {
+        $c.dataset.cloneName = card.cloneSourceName;
         const $cloneLabel = document.createElement('div');
         $cloneLabel.className = 'clone-name-label';
         $cloneLabel.textContent = '🧬 ' + card.cloneSourceName;
@@ -18523,12 +18554,15 @@ function renderMyBoard(state) {
     const $oldCloneLabel = el.querySelector('.clone-name-label');
     if ($oldCloneLabel) $oldCloneLabel.remove();
     if (card && card.isClone && card.cloneSourceName) {
+      el.dataset.cloneName = card.cloneSourceName;
       const $cloneLabel = document.createElement('div');
       $cloneLabel.className = 'clone-name-label';
       $cloneLabel.textContent = '🧬 ' + card.cloneSourceName;
       $cloneLabel.dataset.tooltip = `Clone — copying ${card.cloneSourceName}'s passive and HP`;
       el.appendChild($cloneLabel);
       fitCloneLabel($cloneLabel);
+    } else {
+      delete el.dataset.cloneName;
     }
     const isGuardedFam = card && (you.familiars || []).some(f =>
       f && f.harpyGuardTarget && f.harpyGuardTarget.type === 'familiar' && f.harpyGuardTarget.familiarIndex === idx

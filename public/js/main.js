@@ -499,6 +499,49 @@ async function init() {
     }
     showToast(msg);
   });
+
+  // ── Server crash overlay — shown when server sends crash info before dying ──
+  on('server:crash', ({ type, message }) => {
+    // Create full-screen crash overlay
+    const $overlay = document.createElement('div');
+    $overlay.id = 'crash-overlay';
+    $overlay.style.cssText = `
+      position: fixed; inset: 0; z-index: 99999;
+      background: rgba(0,0,0,0.92);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 20px; font-family: 'Courier New', monospace;
+    `;
+    const $title = document.createElement('div');
+    $title.style.cssText = `
+      color: #ff4444; font-size: 28px; font-weight: bold;
+      margin-bottom: 12px; text-align: center;
+    `;
+    $title.textContent = '💀 SERVER CRASH';
+    const $subtitle = document.createElement('div');
+    $subtitle.style.cssText = `
+      color: #ff8888; font-size: 16px; margin-bottom: 20px; text-align: center;
+    `;
+    $subtitle.textContent = type || 'The server encountered a fatal error';
+    const $box = document.createElement('pre');
+    $box.style.cssText = `
+      color: #ffaaaa; font-size: 12px; background: rgba(80,0,0,0.4);
+      border: 1px solid #ff4444; border-radius: 8px; padding: 16px;
+      max-width: 90vw; max-height: 50vh; overflow: auto;
+      white-space: pre-wrap; word-break: break-all;
+    `;
+    $box.textContent = message || 'No details available';
+    const $hint = document.createElement('div');
+    $hint.style.cssText = `
+      color: #888; font-size: 14px; margin-top: 20px; text-align: center;
+    `;
+    $hint.textContent = 'The server has stopped. Refresh once it restarts.';
+    $overlay.appendChild($title);
+    $overlay.appendChild($subtitle);
+    $overlay.appendChild($box);
+    $overlay.appendChild($hint);
+    document.body.appendChild($overlay);
+    console.error('SERVER CRASH:', message);
+  });
 }
 
 init();

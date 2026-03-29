@@ -1431,7 +1431,7 @@ function shuffle(arr) {
 }
 
 // Debug: inject these card names into all players' hands at game start (empty array to disable)
-const DEBUG_INJECT_CARDS = [];
+const DEBUG_INJECT_CARDS = ['Undead Scorpion'];
 const DEBUG_FORCE_STUDENT = null; // Set to null to disable
 
 /** Inject debug cards into all players' hands (used by both game:start and game:restart) */
@@ -16974,12 +16974,14 @@ function detonateDoomsdayBomb(room, playerId, equipIndex) {
 
   console.log(`💥💣 DOOMSDAY BOMB DETONATES! ${counters} counters → ${damage} damage to ALL targets!`);
 
-  // Collect ALL targets (including the detonating player's own student and familiars)
+  // Collect ALL targets EXCEPT the (formerly) equipped student
   const targets = [];
   for (const [pid, p] of room.players) {
     if (p.left) continue;
     if (p.chosenStudent && !p.studentDead) {
-      targets.push({ playerId: pid, type: 'student' });
+      if (pid !== playerId) { // exclude the detonating player's own student
+        targets.push({ playerId: pid, type: 'student' });
+      }
     }
     for (let i = 0; i < (p.familiars || []).length; i++) {
       if (p.familiars[i] && p.familiars[i].currentHp > 0) {
@@ -23812,7 +23814,17 @@ function startSnareReaction(room, trigger, deferredFn) {
  * or finalizes the chain if all players have been prompted or the trigger was negated.
  */
 function finishSnareReaction(room) {
-  if (!room.snareReaction) return;
+  if (!room.snareReaction) {
+    // Called after _rawFinalize already ran (e.g. from an async snare PA handler
+    // like Icy Grave, Slippery Ice, Rolling Boulder, etc.) — fall back to
+    // the saved original trigger continuation
+    if (room._snareChainContinuation) {
+      const cont = room._snareChainContinuation;
+      delete room._snareChainContinuation;
+      cont();
+    }
+    return;
+  }
   const sr = room.snareReaction;
   clearTimeout(sr.timeoutId);
 
@@ -23937,6 +23949,8 @@ function _finalizeSnareChain(room) {
       deferred = room.snareReaction._originalDeferredFn || room.snareReaction.deferredFn;
     } else {
       // Effect replaced deferredFn with custom handler (e.g. Icy Grave picker) — use it
+      // Save original continuation so async PA handlers can call it via finishSnareReaction fallback
+      room._snareChainContinuation = room.snareReaction._originalDeferredFn;
       deferred = room.snareReaction.deferredFn;
     }
   }
@@ -23954,6 +23968,14 @@ function _finalizeSnareChain(room) {
   // Punch in the Box fires after the snare reaction fully resolves
   if (startPunchInTheBoxReaction(room, savedTrigger, deferred)) return;
   deferred();
+
+  // Clean up _snareChainContinuation if it wasn't consumed.
+  // Synchronous snares (Deceptive Melody) consume it via finishSnareReaction fallback inline.
+  // Async snares (Icy Grave, Slippery Ice, etc.) leave it for the PA handler to consume.
+  // Kill/remove snares that call advanceExamTurn directly never consume it — clean up here.
+  if (room._snareChainContinuation && !room.pendingActivation) {
+    delete room._snareChainContinuation;
+  }
 }
 
 /**
@@ -56111,6 +56133,27 @@ io.on('connection', (socket) => {
       broadcastRoomState(room);
     }
   });
+});
+
+// ─── Crash Broadcasting ──────────────────────────────────────────────────────
+// Broadcast crash details to ALL connected clients before the process dies.
+function broadcastCrash(type, err) {
+  const message = `[${type}] ${err?.stack || err?.message || String(err)}`;
+  console.error(`\n💀 CRASH DETECTED — broadcasting to all clients:\n${message}\n`);
+  try {
+    io.emit('server:crash', { type, message, timestamp: Date.now() });
+  } catch (_) { /* io might be dead */ }
+}
+
+process.on('uncaughtException', (err) => {
+  broadcastCrash('Uncaught Exception', err);
+  // Give sockets a moment to flush, then exit
+  setTimeout(() => process.exit(1), 500);
+});
+
+process.on('unhandledRejection', (reason) => {
+  broadcastCrash('Unhandled Rejection', reason);
+  setTimeout(() => process.exit(1), 500);
 });
 
 // ─── Start ───────────────────────────────────────────────────────────────────
