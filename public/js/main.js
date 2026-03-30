@@ -359,7 +359,15 @@ async function init() {
   on('session:token', ({ sessionToken, roomId }) => {
     const name = $inputName.value.trim();
     saveSession(sessionToken, roomId, name);
-    console.log(`🔑 Session token saved for room ${roomId}`);
+    // If we were reconnecting but got a fresh token (old room gone after crash/restart),
+    // treat as a successful fresh join — clear the reconnecting flag
+    if (reconnecting) {
+      reconnecting = false;
+      joined = true;
+      console.log(`🔑 Reconnect → fresh join (old session expired). New token for room ${roomId}`);
+    } else {
+      console.log(`🔑 Session token saved for room ${roomId}`);
+    }
   });
 
   // ── Session restored (reconnection successful) ────────────────────────
@@ -541,6 +549,10 @@ async function init() {
     $overlay.appendChild($hint);
     document.body.appendChild($overlay);
     console.error('SERVER CRASH:', message);
+    // Clear session so stale tokens don't cause phantom reconnects after restart
+    clearSession();
+    reconnecting = false;
+    joined = false;
   });
 
   // ── Stall detection overlay — shown when server detects no state changes ────

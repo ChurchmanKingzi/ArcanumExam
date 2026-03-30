@@ -30033,6 +30033,30 @@ io.on('connection', (socket) => {
   socket.on('room:join', ({ roomId, playerName, discordId, discordAvatar, sessionToken, customAvatar }) => {
     if (!roomId || !playerName) return;
 
+    // ── Clean up old room if socket is already in one (e.g. after crash/restart) ──
+    if (currentRoom && currentRoom !== roomId) {
+      const oldRoom = rooms.get(currentRoom);
+      if (oldRoom) {
+        const oldPlayer = oldRoom.players.get(socket.id);
+        if (oldPlayer) {
+          if (oldRoom.phase === 'lobby' || oldRoom.phase === 'post-game-lobby') {
+            oldRoom.players.delete(socket.id);
+            if (oldRoom.players.size === 0) {
+              rooms.delete(currentRoom);
+            } else if (oldRoom.hostId === socket.id) {
+              oldRoom.hostId = oldRoom.players.keys().next().value;
+            }
+          } else {
+            oldPlayer.left = true;
+            oldPlayer.disconnected = false;
+          }
+          console.log(`🧹 Cleaned up ${oldPlayer.name} from old room ${currentRoom} before joining ${roomId}`);
+        }
+        socket.leave(currentRoom);
+      }
+      currentRoom = null;
+    }
+
     let room = rooms.get(roomId);
 
     // ── Reconnection attempt ─────────────────────────────────────────────
@@ -30070,6 +30094,13 @@ io.on('connection', (socket) => {
         broadcastRoomPeek(roomId);
         return;
       }
+    }
+
+    // ── Stale session: token provided but room doesn't exist (server restarted) ──
+    if (sessionToken && !room) {
+      console.log(`🔄 Stale session token for non-existent room "${roomId}" — rejecting`);
+      socket.emit('room:closed', { reason: 'Server restarted. Please rejoin.' });
+      return;
     }
 
     // ── Normal join ──────────────────────────────────────────────────────
