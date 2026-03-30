@@ -8895,14 +8895,7 @@ function showSnareExplosions(coords) {
       // Potion of Greed: card image appears center-screen, grows and fades
       const cardPath = ev.cardPath;
       if (cardPath) {
-        const $splash = document.createElement('div');
-        $splash.className = 'pog-splash-overlay';
-        const $img = document.createElement('div');
-        $img.className = 'pog-splash-card';
-        $img.style.backgroundImage = `url("${cardPath}")`;
-        $splash.appendChild($img);
-        document.body.appendChild($splash);
-        setTimeout(() => $splash.remove(), 1600);
+        showCardSplash(cardPath, '#4caf50'); // green for snare
       }
       document.body.appendChild($container);
       setTimeout(() => $container.remove(), 100);
@@ -9987,67 +9980,32 @@ function showActiveSpell(card, playerName, casterId, state, sourceCard = null) {
   // If I'm the caster, skip — I already know what I'm resolving
   if (state && casterId && casterId === state.you.id) return;
 
-  // Anchor above the caster's student card element
-  let anchorEl = null;
-  if (casterId) {
-    anchorEl = document.querySelector(`[data-owner-id="${casterId}"][data-target-type="student"]`);
-  }
-  if (!anchorEl) return; // caster has no student on board — nothing to anchor to
-
-  const rect = anchorEl.getBoundingClientRect();
-  const isItem     = card.type === 'Item';
-  const isEquip    = card.type === 'Equip';
-  const isFamiliar = card.type === 'Familiar';
-  const isPassive  = !!card.passiveEffect;
-  const labelText  = isPassive ? 'Passive' : isItem ? 'Item' : isEquip ? 'Equip' : isFamiliar ? 'Discard' : 'Spell';
-
-  const cardW = Math.round(rect.width  * 1.5);
-  const cardH = Math.round(rect.height * 1.5);
+  const casterColor = (state.playerColors || {})[casterId] || '#d4a843';
 
   if (sourceCard) {
-    // Two-card layout: source (Mystery Box) on the left, spell on the right, centred together
-    const gap = 8;
-    const totalW = cardW * 2 + gap;
-    const centerX = rect.left + rect.width / 2;
-
-    // Source card (Mystery Box)
-    const $src = document.createElement('div');
-    $src.className = 'floating-spell-card floating-spell-source';
-    $src.style.left   = `${centerX - totalW / 2}px`;
-    $src.style.top    = `${rect.top}px`;
-    $src.style.width  = `${cardW}px`;
-    $src.style.height = `${cardH}px`;
-    $src.style.backgroundImage = `url("${cardImg(sourceCard)}")`;
-    $src.dataset.label = 'Item';
-    document.body.appendChild($src);
-    $src.addEventListener('animationend', () => $src.remove());
-    setTimeout(() => { if ($src.parentNode) $src.remove(); }, 3200);
-
-    // Spell card
-    const $wrap = document.createElement('div');
-    $wrap.className = 'floating-spell-card';
-    $wrap.style.left   = `${centerX - totalW / 2 + cardW + gap}px`;
-    $wrap.style.top    = `${rect.top}px`;
-    $wrap.style.width  = `${cardW}px`;
-    $wrap.style.height = `${cardH}px`;
-    $wrap.style.backgroundImage = `url("${cardImg(card)}")`;
-    $wrap.dataset.label = labelText;
-    document.body.appendChild($wrap);
-    $wrap.addEventListener('animationend', () => $wrap.remove());
-    setTimeout(() => { if ($wrap.parentNode) $wrap.remove(); }, 3200);
+    // Two-card layout: source first, then spell
+    showCardSplash(cardImg(sourceCard), casterColor);
+    setTimeout(() => showCardSplash(cardImg(card), casterColor), 400);
   } else {
-    const $wrap = document.createElement('div');
-    $wrap.className = 'floating-spell-card';
-    $wrap.style.left   = `${rect.left + rect.width / 2}px`;
-    $wrap.style.top    = `${rect.top}px`;
-    $wrap.style.width  = `${cardW}px`;
-    $wrap.style.height = `${cardH}px`;
-    $wrap.style.backgroundImage = `url("${cardImg(card)}")`;
-    $wrap.dataset.label = labelText;
-    document.body.appendChild($wrap);
-    $wrap.addEventListener('animationend', () => $wrap.remove());
-    setTimeout(() => { if ($wrap.parentNode) $wrap.remove(); }, 3200);
+    showCardSplash(cardImg(card), casterColor);
   }
+}
+
+/**
+ * Show a big center-screen card splash (grows and fades out).
+ * Used for Spells, Items, Snares — any card activation announcement.
+ */
+function showCardSplash(imagePath, borderColor = '#d4a843') {
+  if (!imagePath) return;
+  const $splash = document.createElement('div');
+  $splash.className = 'card-splash-overlay';
+  const $img = document.createElement('div');
+  $img.className = 'card-splash-card';
+  $img.style.backgroundImage = `url("${imagePath}")`;
+  $img.style.setProperty('--splash-border-color', borderColor);
+  $splash.appendChild($img);
+  document.body.appendChild($splash);
+  setTimeout(() => $splash.remove(), 1800);
 }
 
 function hideActiveSpell() {
@@ -20781,7 +20739,7 @@ function _captureEventPositions(events, state) {
     const key = `${evt.playerId}-${evt.type}-${evt.familiarIndex ?? ''}`;
     const delay = targetDelay.get(key) || 0;
     targetDelay.set(key, delay + 180);
-    captured.push({ evt, left: rect.left + rect.width / 2, top: rect.top, delay });
+    captured.push({ evt, left: rect.left + rect.width / 2, top: rect.top, width: rect.width, height: rect.height, delay });
   }
   return captured;
 }
@@ -20811,7 +20769,29 @@ function _showCapturedDamage(captured) {
  * Show floating heal numbers from pre-captured positions.
  */
 function _showCapturedHeal(captured) {
-  for (const { evt, left, top } of captured) {
+  for (const { evt, left, top, width, height } of captured) {
+    // Heal glow particles at captured position
+    const colors = ['#00cc44', '#00ff66', '#33ff88', '#88ffaa', '#aaffcc', '#00ee55'];
+    const cx = left, cy = top;
+    const w = width || 40, h = height || 56;
+    for (let i = 0; i < 10; i++) {
+      const $p = document.createElement('div');
+      $p.className = 'heal-particle';
+      const xOff = (Math.random() - 0.5) * w * 0.8;
+      const yRise = -(20 + Math.random() * 40);
+      $p.style.setProperty('--hx', xOff + 'px');
+      $p.style.setProperty('--hy', yRise + 'px');
+      const size = 3 + Math.random() * 4;
+      $p.style.width = size + 'px';
+      $p.style.height = size + 'px';
+      $p.style.left = (cx + (Math.random() - 0.5) * w * 0.6) + 'px';
+      $p.style.top = (cy + (Math.random() - 0.5) * h * 0.4) + 'px';
+      $p.style.background = colors[Math.floor(Math.random() * colors.length)];
+      $p.style.animationDelay = (Math.random() * 0.2) + 's';
+      document.body.appendChild($p);
+      setTimeout(() => $p.remove(), 900);
+    }
+
     const $heal = document.createElement('div');
     $heal.className = 'floating-heal';
     $heal.textContent = `+${evt.amount}`;
@@ -20830,18 +20810,35 @@ function _showCapturedHeal(captured) {
  */
 const _activeRamSources = new Set(); // 'playerId:type:index' keys of hidden sources
 
-function _showRamClones(sourceEl, targets, state) {
+function _showRamClones(sourceEl, targets, state, damage = 0) {
   if (!sourceEl) return;
   const sourceRect = sourceEl.getBoundingClientRect();
   const sourceImg = sourceEl.style.backgroundImage;
+  const sourceBR = getComputedStyle(sourceEl).borderRadius || '8px';
 
   // Hide the original source immediately
   sourceEl.classList.add('ram-source-hidden');
+
+  // Create a ghost placeholder at the source's position — survives DOM re-renders
+  // (e.g. Moonlight Butterfly bounces to hand mid-animation, removing the DOM element)
+  const $ghost = document.createElement('div');
+  $ghost.className = 'ram-source-ghost';
+  $ghost.style.left = sourceRect.left + 'px';
+  $ghost.style.top = sourceRect.top + 'px';
+  $ghost.style.width = sourceRect.width + 'px';
+  $ghost.style.height = sourceRect.height + 'px';
+  $ghost.style.backgroundImage = sourceImg;
+  $ghost.style.borderRadius = sourceBR;
+  document.body.appendChild($ghost);
 
   for (const target of targets) {
     const targetEl = _findBoardEl(state, target.playerId, target.type, target.familiarIndex);
     if (!targetEl) continue;
     const targetRect = targetEl.getBoundingClientRect();
+
+    // Pre-capture impact position (targetEl may be detached after re-render)
+    const impactX = targetRect.left + targetRect.width / 2;
+    const impactY = targetRect.top + targetRect.height / 2;
 
     // Delta from source center to target center
     const dx = (targetRect.left + targetRect.width / 2) - (sourceRect.left + sourceRect.width / 2);
@@ -20862,17 +20859,85 @@ function _showRamClones(sourceEl, targets, state) {
       $clone.style.transform = `translate(${dx}px, ${dy}px) scale(1.1)`;
     });
 
-    // Phase 2: at impact, flash the target
+    // Phase 2: at impact, flash the target + show impact burst
     setTimeout(() => {
-      if (targetEl) targetEl.classList.add('ram-impact');
-      setTimeout(() => { if (targetEl) targetEl.classList.remove('ram-impact'); }, 200);
-      // Return to source (0.2s ease-out)
-      $clone.style.transition = 'transform 0.2s ease-out';
+      if (targetEl && targetEl.isConnected) {
+        targetEl.classList.add('ram-impact');
+        setTimeout(() => { if (targetEl.isConnected) targetEl.classList.remove('ram-impact'); }, 300);
+      }
+
+      // Impact burst at pre-captured position (scaled by damage)
+      _showImpactBurst(impactX, impactY, damage);
+
+      // Return to source (0.25s ease-out)
+      $clone.style.transition = 'transform 0.25s ease-out, opacity 0.25s ease-out';
       $clone.style.transform = 'translate(0, 0) scale(1)';
+      $clone.style.opacity = '0.5';
     }, 200);
 
-    // Phase 3: remove clone after return
-    setTimeout(() => { if ($clone.parentNode) $clone.remove(); }, 420);
+    // Phase 3: remove clone — timed to match source unhide (no gap)
+    setTimeout(() => { if ($clone.parentNode) $clone.remove(); }, 450);
+  }
+
+  // Remove ghost when animation fully completes
+  setTimeout(() => { if ($ghost.parentNode) $ghost.remove(); }, 450);
+}
+
+/**
+ * Show an impact burst at a screen position — expanding ring + particles.
+ * Scales with damage: 1 = small, 25+ = massive.
+ */
+function _showImpactBurst(cx, cy, damage = 5) {
+  // Scale factor: 0.6 at dmg=1, 1.0 at dmg=5, 2.0 at dmg=15, 3.0 at dmg=25+
+  const scale = Math.min(3.0, 0.5 + (damage / 10) * 1.5);
+  const particleCount = Math.min(24, 8 + Math.floor(damage * 0.6));
+  const maxDist = 25 + damage * 2.5;
+  const ringExpand = Math.min(12, 5 + damage * 0.3);
+  const duration = Math.min(600, 350 + damage * 10);
+
+  // Expanding shockwave ring
+  const $ring = document.createElement('div');
+  $ring.className = 'ram-impact-ring';
+  $ring.style.left = cx + 'px';
+  $ring.style.top = cy + 'px';
+  $ring.style.setProperty('--ring-scale', ringExpand);
+  $ring.style.setProperty('--ring-size', Math.round(8 * scale) + 'px');
+  $ring.style.width = $ring.style.getPropertyValue('--ring-size');
+  $ring.style.height = $ring.style.getPropertyValue('--ring-size');
+  $ring.style.animationDuration = duration + 'ms';
+  document.body.appendChild($ring);
+  setTimeout(() => $ring.remove(), duration + 50);
+
+  // Central flash
+  const $flash = document.createElement('div');
+  $flash.className = 'ram-impact-flash';
+  $flash.style.left = cx + 'px';
+  $flash.style.top = cy + 'px';
+  const flashSize = Math.round(16 * scale);
+  $flash.style.width = flashSize + 'px';
+  $flash.style.height = flashSize + 'px';
+  $flash.style.animationDuration = Math.round(duration * 0.6) + 'ms';
+  document.body.appendChild($flash);
+  setTimeout(() => $flash.remove(), Math.round(duration * 0.6) + 50);
+
+  // Particle spray
+  const colors = ['#fff', '#ffe066', '#ffaa00', '#ff6600', '#ff3300', '#ffcc44', '#ffff80'];
+  for (let i = 0; i < particleCount; i++) {
+    const $p = document.createElement('div');
+    $p.className = 'ram-impact-particle';
+    const angle = (i / particleCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+    const dist = (15 + Math.random() * maxDist) * scale;
+    $p.style.setProperty('--px', Math.cos(angle) * dist + 'px');
+    $p.style.setProperty('--py', Math.sin(angle) * dist + 'px');
+    const size = (2 + Math.random() * 3) * Math.min(scale, 2);
+    $p.style.width = size + 'px';
+    $p.style.height = size + 'px';
+    $p.style.left = cx + 'px';
+    $p.style.top = cy + 'px';
+    $p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    $p.style.animationDuration = duration + 'ms';
+    document.body.appendChild($p);
+    setTimeout(() => $p.remove(), duration + 50);
   }
 }
 
@@ -20905,12 +20970,15 @@ function handleFamiliarRamAnimation(state) {
   const ramEvents = state.ramEvents;
   if (!ramEvents || ramEvents.length === 0) return false;
 
+  // Compute max damage for impact burst scaling
+  const maxDmg = (state.damageEvents || []).reduce((max, e) => Math.max(max, e.damage || 0), 0);
+
   // Show ram clones for each event
   let anyRam = false;
   for (const evt of ramEvents) {
     const sourceEl = _findRamSourceEl(state, evt);
     if (!sourceEl || !evt.targets || evt.targets.length === 0) continue;
-    _showRamClones(sourceEl, evt.targets, state);
+    _showRamClones(sourceEl, evt.targets, state, maxDmg);
     anyRam = true;
 
     // Track hidden source so we can re-hide after re-render
@@ -20938,7 +21006,7 @@ function handleFamiliarRamAnimation(state) {
           setTimeout(() => { el.style.transition = ''; }, 200);
         });
       }
-    }, 420);
+    }, 450); // matches clone removal — no flicker gap
   }
 
   if (!anyRam) return false;
@@ -21078,6 +21146,42 @@ function showDamageNumbers(state) {
   }
 }
 
+/**
+ * Show a deep green heal glow + particles on a target element.
+ */
+function _showHealGlow(el) {
+  if (!el) return;
+
+  // Glow overlay (child of target, inherits position)
+  const $glow = document.createElement('div');
+  $glow.className = 'heal-glow-overlay';
+  el.appendChild($glow);
+  setTimeout(() => $glow.remove(), 800);
+
+  // Green particles rising from the target
+  const rect = el.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const colors = ['#00cc44', '#00ff66', '#33ff88', '#88ffaa', '#aaffcc', '#00ee55'];
+  for (let i = 0; i < 10; i++) {
+    const $p = document.createElement('div');
+    $p.className = 'heal-particle';
+    const xOff = (Math.random() - 0.5) * rect.width * 0.8;
+    const yRise = -(20 + Math.random() * 40);
+    $p.style.setProperty('--hx', xOff + 'px');
+    $p.style.setProperty('--hy', yRise + 'px');
+    const size = 3 + Math.random() * 4;
+    $p.style.width = size + 'px';
+    $p.style.height = size + 'px';
+    $p.style.left = (cx + (Math.random() - 0.5) * rect.width * 0.6) + 'px';
+    $p.style.top = (cy + (Math.random() - 0.5) * rect.height * 0.4) + 'px';
+    $p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    $p.style.animationDelay = (Math.random() * 0.2) + 's';
+    document.body.appendChild($p);
+    setTimeout(() => $p.remove(), 900);
+  }
+}
+
 function showHealNumbers(state) {
   const events = state.healEvents;
   if (!events || events.length === 0) return;
@@ -21102,6 +21206,9 @@ function showHealNumbers(state) {
     }
 
     if (!targetEl) continue;
+
+    // Green heal glow + particles on the healed target
+    _showHealGlow(targetEl);
 
     const rect = targetEl.getBoundingClientRect();
     const $heal = document.createElement('div');
@@ -21663,7 +21770,7 @@ function showArmsTradeSwapAnimations(state) {
       $flyB.style.height = `${rectA.height}px`;
     }));
 
-    setTimeout(() => { $flyA.remove(); $flyB.remove(); }, 700);
+    setTimeout(() => { $flyA.remove(); $flyB.remove(); }, 1400);
   }
 }
 
@@ -21687,6 +21794,46 @@ function showEquipAnimations(state) {
         setTimeout(() => $el.classList.remove('equip-glow'), 1500);
       }
     }
+  }
+}
+
+/**
+ * Show equip fly animations (Band Kid steal, Hot Potato, etc.)
+ * Equip card image flies slowly from source student to destination student.
+ */
+function showEquipFlyAnimations(state) {
+  const events = state.equipFlyEvents;
+  if (!events || events.length === 0) return;
+
+  function getStudentEl(playerId) {
+    if (playerId === state.you.id) return $studentSlot;
+    return document.querySelector(`[data-owner-id="${playerId}"][data-target-type="student"]`);
+  }
+
+  for (const evt of events) {
+    const fromEl = getStudentEl(evt.fromPlayerId);
+    const toEl = getStudentEl(evt.toPlayerId);
+    if (!fromEl || !toEl) continue;
+    const fromRect = fromEl.getBoundingClientRect();
+    const toRect = toEl.getBoundingClientRect();
+
+    const $fly = document.createElement('div');
+    $fly.className = 'equip-fly-card';
+    if (evt.equipPath) $fly.style.backgroundImage = `url("${evt.equipPath}")`;
+    $fly.style.left = fromRect.left + 'px';
+    $fly.style.top = fromRect.top + 'px';
+    $fly.style.width = fromRect.width + 'px';
+    $fly.style.height = fromRect.height + 'px';
+    document.body.appendChild($fly);
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      $fly.style.left = toRect.left + 'px';
+      $fly.style.top = toRect.top + 'px';
+      $fly.style.width = toRect.width + 'px';
+      $fly.style.height = toRect.height + 'px';
+    }));
+
+    setTimeout(() => $fly.remove(), 1400);
   }
 }
 
@@ -28136,6 +28283,7 @@ export function updateGameState(state, myId) {
   showSnarePlacedAnimations(state);
   showArmsTradeSwapAnimations(state);
   showEquipAnimations(state);
+  showEquipFlyAnimations(state);
   showSlimeSpawnAnimations(state);
   showUndeadFishReviveAnimations(state);
   showSandyBlobAnimations(state);
@@ -28291,6 +28439,24 @@ export function updateGameState(state, myId) {
     }
     if (sr.phase === 'flipping' && prevSnarePhase !== 'flipping') {
       showSnareFlipAnimation(state);
+      // Center-screen splash for activated snare
+      const snareOwnerId = sr.activatedPlayerId;
+      const snareIdx = sr.activatedSnareIndex;
+      let snarePath = null;
+      if (snareOwnerId === state.you.id) {
+        const s = state.you.snares[snareIdx];
+        if (s && s.faceUp) snarePath = cardImg(s);
+      } else {
+        const opp = state.others.find(o => o.id === snareOwnerId);
+        if (opp && opp.snares && opp.snares[snareIdx] && opp.snares[snareIdx].faceUp) {
+          snarePath = cardImg(opp.snares[snareIdx]);
+        }
+      }
+      if (snarePath) {
+        const snareColor = (state.playerColors || {})[snareOwnerId] || '#d4a843';
+        // Delay slightly so the flip animation starts first
+        setTimeout(() => showCardSplash(snarePath, snareColor), 500);
+      }
     }
     // Snare targeting phase — opponent selection
     if (sr.phase === 'targeting' && sr.isMyTargeting) {

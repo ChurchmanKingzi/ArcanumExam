@@ -542,6 +542,61 @@ async function init() {
     document.body.appendChild($overlay);
     console.error('SERVER CRASH:', message);
   });
+
+  // ── Stall detection overlay — shown when server detects no state changes ────
+  on('server:stall', (diag) => {
+    // Don't show duplicate stall overlays
+    if (document.getElementById('stall-overlay')) return;
+    const $overlay = document.createElement('div');
+    $overlay.id = 'stall-overlay';
+    $overlay.style.cssText = `
+      position: fixed; inset: 0; z-index: 99998;
+      background: rgba(0,0,0,0.85);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 20px; font-family: 'Courier New', monospace;
+    `;
+    const $title = document.createElement('div');
+    $title.style.cssText = `
+      color: #ffaa00; font-size: 24px; font-weight: bold;
+      margin-bottom: 8px; text-align: center;
+    `;
+    $title.textContent = '⚠️ GAME STALL DETECTED';
+    const $subtitle = document.createElement('div');
+    $subtitle.style.cssText = `
+      color: #ffcc66; font-size: 14px; margin-bottom: 16px; text-align: center;
+    `;
+    $subtitle.textContent = `Round ${diag.round || '?'} — ${diag.currentTurn || '?'}'s turn — ${diag.subPhase || diag.phase}`;
+    const $box = document.createElement('pre');
+    $box.style.cssText = `
+      color: #ffddaa; font-size: 11px; background: rgba(80,60,0,0.4);
+      border: 1px solid #ffaa00; border-radius: 8px; padding: 14px;
+      max-width: 90vw; max-height: 40vh; overflow: auto;
+      white-space: pre-wrap; word-break: break-all;
+    `;
+    // Format action log nicely
+    const logLines = (diag.actionLog || []).map(e => {
+      const ago = Math.round((Date.now() - e.t) / 1000);
+      const p = e.player ? `[${e.player}]` : '';
+      const details = Object.entries(e).filter(([k]) => !['t','action','player'].includes(k)).map(([k,v]) => `${k}=${v}`).join(' ');
+      return `${ago}s ago  ${e.action} ${p} ${details}`;
+    }).join('\n');
+    const pendingStr = Object.keys(diag.pending || {}).length > 0
+      ? '\n\nPending state:\n' + JSON.stringify(diag.pending, null, 2)
+      : '\n\nNo pending state (game appears idle)';
+    $box.textContent = 'Last actions:\n' + (logLines || '(none)') + pendingStr;
+    const $hint = document.createElement('div');
+    $hint.style.cssText = `
+      color: #888; font-size: 13px; margin-top: 16px; text-align: center;
+    `;
+    $hint.textContent = 'The game may be stuck. Click anywhere to dismiss this overlay.';
+    $overlay.appendChild($title);
+    $overlay.appendChild($subtitle);
+    $overlay.appendChild($box);
+    $overlay.appendChild($hint);
+    document.body.appendChild($overlay);
+    $overlay.addEventListener('click', () => $overlay.remove());
+    console.warn('STALL DETECTED:', diag);
+  });
 }
 
 init();

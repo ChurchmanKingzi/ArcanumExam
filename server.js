@@ -1556,9 +1556,155 @@ function createRoom(id) {
     magicEmeraldEvent: false,  // one-shot: triggers green sparkle animation on all screens
     magneticPotionEvent: null, // one-shot: activatorId — triggers animation on all screens
     ramEvents: [],             // [{ sourcePlayerId, sourceType, sourceFamiliarIndex, targets }] — one-shot familiar ram
+    actionLog: [],             // ring buffer of last 20 actions for deadlock diagnosis
+    _stallWatchdogId: null,    // timeout ID for stall detection
   };
   rooms.set(id, room);
   return room;
+}
+
+// ─── Action Log & Stall Watchdog ──────────────────────────────────────────────
+const ACTION_LOG_SIZE = 20;
+const STALL_TIMEOUT_MS = 60_000; // 60s without a state broadcast = stall
+
+/**
+ * Log a game action to the room's ring buffer for deadlock diagnosis.
+ */
+function logRoomAction(room, action, details = {}) {
+  if (!room) return;
+  const playerName = details.playerId
+    ? (room.players.get(details.playerId)?.name || details.playerId)
+    : null;
+  const entry = {
+    t: Date.now(),
+    action,
+    player: playerName,
+    ...details,
+  };
+  // Remove playerId from logged entry (redundant with player name)
+  delete entry.playerId;
+  room.actionLog.push(entry);
+  if (room.actionLog.length > ACTION_LOG_SIZE) room.actionLog.shift();
+}
+
+/**
+ * Build a diagnostic snapshot of the room's pending state for stall reports.
+ */
+function buildStallDiagnostic(room) {
+  const pending = {};
+  if (room.pendingActivation) pending.pendingActivation = {
+    playerId: room.pendingActivation.playerId,
+    playerName: room.players.get(room.pendingActivation.playerId)?.name || '?',
+    effectType: room.pendingActivation.effectType,
+    familiarName: room.pendingActivation.familiarName,
+    canCancel: room.pendingActivation.canCancel,
+  };
+  if (room.snareReaction) pending.snareReaction = {
+    phase: room.snareReaction.phase,
+    trigger: room.snareReaction.trigger?.type,
+    promptIndex: room.snareReaction.promptIndex,
+    queueLength: room.snareReaction.promptQueue?.length,
+    activatedSnare: room.snareReaction.activatedSnareName,
+    responses: Object.fromEntries(
+      Object.entries(room.snareReaction.responses || {}).map(([k, v]) => [room.players.get(k)?.name || k, v])
+    ),
+  };
+  if (room.bluffReaction) pending.bluffReaction = true;
+  if (room.pendingElixir) pending.pendingElixir = room.pendingElixir.playerId;
+  if (room.pendingAnkh) pending.pendingAnkh = room.pendingAnkh.playerId;
+  if (room.pendingPriceTag) pending.pendingPriceTag = true;
+  if (room.pendingPunchInTheBox) pending.pendingPunchInTheBox = room.pendingPunchInTheBox.playerId;
+  if (room.pendingWeakeningCrystal) pending.pendingWeakeningCrystal = true;
+  if (room.pendingSwordBreakingRock) pending.pendingSwordBreakingRock = true;
+  if (room.pendingBarbarianSword) pending.pendingBarbarianSword = room.pendingBarbarianSword.playerId;
+  if (room.chillyWizzyReaction) pending.chillyWizzy = room.chillyWizzyReaction.phase;
+  if (room.pendingEquipTrigger) pending.pendingEquipTrigger = room.pendingEquipTrigger.equipName;
+  if (room.pendingDoomsdayBomb) pending.pendingDoomsdayBomb = room.pendingDoomsdayBomb.playerId;
+  if (room.pendingOverchargedTrap) pending.pendingOverchargedTrap = true;
+  if (room.roundTransitioning) pending.roundTransitioning = true;
+  if (room._resolvingBomblebee) pending.resolvingBomblebee = true;
+  if (room._snareChainContinuation) pending.snareChainContinuation = true;
+  if (room.magnetRedirectPending) pending.magnetRedirect = true;
+  if (room.jetpackReaction) pending.jetpackReaction = true;
+  return {
+    phase: room.phase,
+    subPhase: room.examSubPhase,
+    round: room.examRound,
+    currentTurn: room.players.get(room.currentTurnId)?.name || room.currentTurnId,
+    pending,
+    actionLog: room.actionLog.slice(),
+  };
+}
+
+/**
+ * Check whether the game is actively waiting for a player to do something.
+ * If so, there's no stall — the player is just thinking.
+ */
+function isWaitingForPlayerInput(room) {
+  // Active turn — player is deciding what to do
+  if (room.currentTurnId && !room.pendingActivation && !room.snareReaction
+      && !room.roundTransitioning && !room.bluffReaction) return true;
+  // Player selecting targets / confirming an effect
+  if (room.pendingActivation) return true;
+  // Snare reaction prompting — player deciding whether to flip
+  if (room.snareReaction && room.snareReaction.phase === 'prompting') return true;
+  // Bluff reaction prompting
+  if (room.bluffReaction && room.bluffReaction.phase === 'prompting') return true;
+  // Various player prompts
+  if (room.pendingElixir || room.pendingAnkh || room.pendingPriceTag
+      || room.pendingPunchInTheBox || room.pendingWeakeningCrystal
+      || room.pendingSwordBreakingRock || room.pendingBarbarianSword
+      || room.pendingDoomsdayBomb || room.pendingOverchargedTrap
+      || room.pendingCoolKidProtect || room.pendingNerdyCheese
+      || room.pendingHydraRevive || room.pendingCuteFamiliarReplace
+      || room.pendingWoodenHorseSummon || room.pendingMimicSnare
+      || room.pendingGlassOfMarbles || room.pendingGoldenBanana
+      || room.pendingMasterKey || room.pendingEnergyBeam
+      || room.pendingBottledLightning || room.pendingCopyDevice
+      || room.pendingFrozenScythe || room.pendingBirthdayPresent
+      || room.pendingEnergyCore || room.pendingCrystalBall
+      || room.pendingMagnetRedirect || room.pendingSnowmanExhaust
+      || room.pendingHarpyGuard || room.pendingFieldStandard
+      || room.pendingWarProfiteering
+      || room.pendingPlayingCards || room.pendingPotionLauncher
+      || room.pendingBombArrow || room.pendingCharmOfBalance
+      || room.pendingControlDevice || room.pendingLiveShow) return true;
+  // Chilly Wizzy prompting
+  if (room.chillyWizzyReaction && room.chillyWizzyReaction.phase === 'prompting') return true;
+  // Jetpack reaction
+  if (room.jetpackReaction && room.jetpackReaction.phase === 'prompting') return true;
+  // Snare prep — waiting for players to set snares
+  if (room.examSubPhase === 'snare-prep') return true;
+  return false;
+}
+
+/**
+ * Reset the stall watchdog. Called from broadcastRoomState.
+ */
+function resetStallWatchdog(room) {
+  if (room._stallWatchdogId) clearTimeout(room._stallWatchdogId);
+  // Only watch during active exam
+  if (room.phase !== 'exam' || room.gameOver) {
+    room._stallWatchdogId = null;
+    return;
+  }
+  room._stallWatchdogId = setTimeout(() => {
+    if (room.gameOver || room.phase !== 'exam') return;
+    // If the game is genuinely waiting for a player, don't flag as stall
+    if (isWaitingForPlayerInput(room)) {
+      // Re-arm the watchdog — check again later
+      resetStallWatchdog(room);
+      return;
+    }
+    const diag = buildStallDiagnostic(room);
+    const message = JSON.stringify(diag, null, 2);
+    console.error(`\n⚠️ STALL DETECTED in room ${room.id}:\n${message}\n`);
+    // Broadcast to all players in the room
+    for (const [pid] of room.players) {
+      const sock = io.sockets.sockets.get(pid);
+      if (sock) sock.emit('server:stall', diag);
+    }
+  }, STALL_TIMEOUT_MS);
 }
 
 function getPublicPlayerData(player, phase, viewerId = null, room = null) {
@@ -12196,7 +12342,7 @@ function _activateFamiliarCore(room, playerId, player, familiarIndex, canCancel,
         for (const p of getActivePlayers(room)) {
           for (let i = 0; i < (p.familiars || []).length; i++) {
             const f = p.familiars[i];
-            if ((f.currentHp || 0) <= 0) continue;
+            if (!f || (f.currentHp || 0) <= 0) continue;
             if (isGoldenHind(f)) continue;
             if (p.id === playerId && i === familiarIndex) continue; // Hydra excludes itself
             c++;
@@ -14534,6 +14680,7 @@ function advanceExamTurn(room) {
     const candidate = room.players.get(candidateId);
     if (candidate && !candidate.left && !candidate.disconnected && countUntappedTargets(candidate, room) > 0) {
       room.currentTurnId = candidateId;
+      logRoomAction(room, 'turnAdvance', { playerId: candidateId });
       startTurnTimer(room, candidateId);
       return false;
     }
@@ -14541,6 +14688,7 @@ function advanceExamTurn(room) {
   }
 
   // All remaining players are tapped/disconnected/left — start new round
+  logRoomAction(room, 'roundEnd', { round: room.examRound });
   clearTurnTimer(room);
   room.roundTransitioning = true;
   broadcastRoomState(room);
@@ -17282,6 +17430,7 @@ function getPlayerTauntingTargets(player) {
   }
   for (let i = 0; i < (player.familiars || []).length; i++) {
     const f = player.familiars[i];
+    if (!f) continue;
     if (f.currentHp > 0 && (f.taunting || 0) > 0) {
       result.push({ type: 'familiar', familiarIndex: i, stacks: f.taunting });
     }
@@ -17451,6 +17600,7 @@ function returnTreacherousCrystalLoans(room) {
     const fams = player.familiars || [];
     for (let i = fams.length - 1; i >= 0; i--) {
       const fam = fams[i];
+      if (!fam) continue;
       if (!fam._tcLoanedFrom) continue;
       if ((fam.currentHp || 0) <= 0) {
         // Familiar is dead — just clear the loan marker
@@ -17924,7 +18074,7 @@ function takeHistoricRecordsSnapshot(room) {
     if (p.left) continue;
     for (let i = 0; i < (p.familiars || []).length; i++) {
       const fam = p.familiars[i];
-      if ((fam.currentHp || 0) <= 0) continue;
+      if (!fam || (fam.currentHp || 0) <= 0) continue;
       const trackId = `hr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       fam.hrTrackId = trackId;
       room.historicRecordsSnapshot[trackId] = {
@@ -18127,7 +18277,7 @@ function hasAnyUntappedStudent(player, forSpellCasting = false) {
   // Any summoned student alive & untapped? (summoned students are never blade-restricted)
   for (let i = 0; i < (player.familiars || []).length; i++) {
     const f = player.familiars[i];
-    if (f.summoned && f.currentHp > 0 && !player.tappedFamiliars.includes(i)) return true;
+    if (f && f.summoned && f.currentHp > 0 && !player.tappedFamiliars.includes(i)) return true;
   }
   return false;
 }
@@ -20575,7 +20725,7 @@ function countSnowmanPassiveExhaustTargets(room, activatorPlayerId, opts = {}) {
     if (hasClassPetImmunity(p)) continue; // all familiars blocked
     for (let i = 0; i < (p.familiars || []).length; i++) {
       const f = p.familiars[i];
-      if (f.currentHp <= 0) continue;
+      if (!f || f.currentHp <= 0) continue;
       if (f.summoned) continue;
       if (isMechImmune(f)) continue;
       if (p.tappedFamiliars.includes(i)) continue;
@@ -20973,7 +21123,7 @@ function startGoldenEggHatch(room, afterFn) {
     if (p.left || p.won || p.studentDead) continue;
     for (let fi = 0; fi < (p.familiars || []).length; fi++) {
       const fam = p.familiars[fi];
-      if (fam.name === 'Golden Egg' && fam.currentHp > 0 && !players[pid]) {
+      if (fam && fam.name === 'Golden Egg' && fam.currentHp > 0 && !players[pid]) {
         players[pid] = {
           familiarIndex: fi,
           hatchCounters: fam.hatchCounters || 0,
@@ -21040,7 +21190,7 @@ function resolveGoldenEggEntry(room, playerId) {
   if (player && !player.left && !player.won && !player.studentDead) {
     for (let fi = 0; fi < (player.familiars || []).length; fi++) {
       const fam = player.familiars[fi];
-      if (fam.name === 'Golden Egg' && fam.currentHp > 0) {
+      if (fam && fam.name === 'Golden Egg' && fam.currentHp > 0) {
         // Skip if this is the same egg already being handled (shouldn't happen, but safety)
         if (geh.players[playerId] && geh.players[playerId].familiarIndex === fi) continue;
         geh.players[playerId] = {
@@ -23786,6 +23936,7 @@ function startSnareReaction(room, trigger, deferredFn) {
 
   const playerNames = promptQueue.map(id => room.players.get(id)?.name || '?');
   console.log(`🪤 Snare reaction started! Prompt order: ${playerNames.join(' → ')}`);
+  logRoomAction(room, 'snareReactionStart', { trigger: trigger.type, eligible: playerNames });
 
   const firstPlayerId = promptQueue[0];
   room.snareReaction = {
@@ -23938,6 +24089,11 @@ function _finalizeSnareChain(room) {
   if (!room.snareReaction) return;
   clearTimeout(room.snareReaction.timeoutId);
   const savedTrigger = room.snareReaction.trigger;
+  logRoomAction(room, 'snareChainEnd', {
+    trigger: savedTrigger?.type,
+    activated: room.snareReaction.activatedSnareName || 'none',
+    negated: room.snareReaction._triggerNegated,
+  });
   // For negating effects: use the REPLACED deferredFn (cleanup code that handles the negation).
   // If the effect did NOT replace deferredFn (it's still the tagged queue-advancer), fall back
   // to _originalDeferredFn — the original trigger continuation checks negation flags itself.
@@ -23955,10 +24111,13 @@ function _finalizeSnareChain(room) {
     if (room.snareReaction.deferredFn._isQueueAdvancer) {
       // Effect didn't replace deferredFn — use original trigger continuation
       deferred = room.snareReaction._originalDeferredFn || room.snareReaction.deferredFn;
-    } else {
+    } else if (room.snareReaction._originalDeferredFn) {
       // Effect replaced deferredFn with custom handler (e.g. Icy Grave picker) — use it
       // Save original continuation so async PA handlers can call it via finishSnareReaction fallback
       room._snareChainContinuation = room.snareReaction._originalDeferredFn;
+      deferred = room.snareReaction.deferredFn;
+    } else {
+      // No snare activated (all players declined) — deferredFn is the original continuation
       deferred = room.snareReaction.deferredFn;
     }
   }
@@ -27621,6 +27780,7 @@ function setupCoolCheesePrompt(room, playerId, player, afterFn) {
   }
   for (let i = 0; i < (player.familiars || []).length; i++) {
     const f = player.familiars[i];
+    if (!f) continue;
     if (f.currentHp > 0) {
       ownTargets.push({ type: 'familiar', familiarIndex: i, name: f.name });
     }
@@ -27880,6 +28040,9 @@ function finalizeShard(room) {
 }
 
 function broadcastRoomState(room) {
+  // Reset stall watchdog on every state broadcast
+  resetStallWatchdog(room);
+
   // ── Crimson Web: drain queue immediately (fires even during pendingActivation) ──
   if (room.phase === 'exam' && !room.gameOver && !room.roundTransitioning
       && !room.snareReaction && !room.bluffReaction
@@ -29167,6 +29330,7 @@ function broadcastRoomState(room) {
       snarePlacedEvents: room.snarePlacedEvents || [],
       equipEvents: room.equipEvents || [],
       armsTradeSwapEvents: room.armsTradeSwapEvents || [],
+      equipFlyEvents: room.equipFlyEvents || [],
       auroraBorealisEvent: room.auroraBorealisEvent || false,
       bigOopsieEvent: room.bigOopsieEvent || null,
       bodySwapEvent: room.bodySwapEvent || null,
@@ -29391,6 +29555,7 @@ function broadcastRoomState(room) {
   room.snarePlacedEvents = [];
   room.equipEvents = [];
   room.armsTradeSwapEvents = [];
+  room.equipFlyEvents = [];
   room.auroraBorealisEvent = false;
   room.bigOopsieEvent = null;
   room.bodySwapEvent = null;
@@ -30418,6 +30583,7 @@ io.on('connection', (socket) => {
     if (!player || player.left) return;
 
     console.log(`🪤 ${player.name} activates snare "${entry.snareName}"!`);
+    logRoomAction(room, 'snareActivate', { playerId: socket.id, snare: entry.snareName, trigger: sr.trigger?.type });
 
     // Cancel timeout
     clearTimeout(sr.timeoutId);
@@ -30562,6 +30728,7 @@ io.on('connection', (socket) => {
 
     const player = room.players.get(socket.id);
     console.log(`🪤 ${player?.name || '?'} declined snare activation`);
+    logRoomAction(room, 'snareDecline', { playerId: socket.id, trigger: sr.trigger?.type });
 
     sr.responses[socket.id] = 'declined';
     clearTimeout(sr.timeoutId);
@@ -33452,7 +33619,7 @@ io.on('connection', (socket) => {
     const card = player.hand[cardIndex];
     if (!card || !card.type) return;
 
-    // Determine valid card types based on phase
+    logRoomAction(room, 'playCard', { playerId: socket.id, card: card.name, type: card.type });
     const isPrep = room.phase === 'preparation';
     const isExam = room.phase === 'exam';
     if (!isPrep && !isExam) return;
@@ -36945,6 +37112,7 @@ io.on('connection', (socket) => {
         cleansed++;
       } else if (t.type === 'familiar') {
         const f = owner.familiars[t.familiarIndex];
+        if (!f) continue;
         const old = f.poisonStacks;
         f.poisonStacks = 0;
         console.log(`🧃 Cool Drink: ${owner.name}'s ${f.name} cleansed (${old} stacks removed)`);
@@ -39870,7 +40038,7 @@ io.on('connection', (socket) => {
     const player = room.players.get(pa.playerId);
     if (!player || player.left) return;
 
-    // Validate target count
+    logRoomAction(room, 'attack', { playerId: pa.playerId, source: pa.familiarName || pa.sourceType, damage: pa.damage, targetCount: targets?.length });
     if (!Array.isArray(targets) || targets.length !== pa.targetsNeeded) {
       socket.emit('error:msg', `Must select exactly ${pa.targetsNeeded} targets`);
       return;
@@ -45872,6 +46040,15 @@ io.on('connection', (socket) => {
     player.equips.push(equip);
     if (!room.equipEvents) room.equipEvents = [];
     room.equipEvents.push({ playerId: socket.id });
+
+    // Fly animation: equip visually moves from source to destination
+    if (!room.equipFlyEvents) room.equipFlyEvents = [];
+    room.equipFlyEvents.push({
+      fromPlayerId: fromPlayerId,
+      toPlayerId: socket.id,
+      equipPath: equip.path || null,
+    });
+
     player.tappedStudent = true;
 
     console.log(`🎵 ${player.name}'s ${player.chosenStudent.name} stole "${equip.name}" from ${fromPlayer.name}!`);
@@ -46050,6 +46227,9 @@ io.on('connection', (socket) => {
 
     // Tap student
     player.tappedStudent = true;
+
+    // Ram animation: student flies to target
+    pushRamEvent(room, socket.id, 'student', -1, [{ playerId: targetPlayerId, type: 'student', familiarIndex: -1 }]);
 
     const exactGive = Math.min(2, target.hand.length);
 
@@ -46261,6 +46441,11 @@ io.on('connection', (socket) => {
       player.hand.splice(idx, 1);
     }
     discardFromHand(room, pa.playerId, player, paymentCards);
+
+    // Ram animation: student flies to target familiar
+    if (!pa.darkGear && !pa.loveShot) {
+      pushRamEvent(room, pa.playerId, 'student', -1, [{ playerId: targetPlayerId, type: 'familiar', familiarIndex: fi }]);
+    }
 
     const _doCharmEffect = () => {
     // Anti Magic Shield/Zone guard (Love Shot only)

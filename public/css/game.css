@@ -3629,16 +3629,116 @@ body.hole-in-sky-active .targeting-overlay {
 }
 
 .ram-impact {
-  animation: ramImpactFlash 0.2s ease-out;
+  animation: ramImpactFlash 0.3s ease-out;
 }
 
 .ram-source-hidden {
   visibility: hidden !important;
 }
+
+.ram-source-ghost {
+  position: fixed;
+  z-index: 9998;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+  border: 2px solid rgba(255,255,255,0.15);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  filter: brightness(0.7);
+  opacity: 0.6;
+}
 @keyframes ramImpactFlash {
   0%   { filter: brightness(1); transform: scale(1); }
-  30%  { filter: brightness(2.5) saturate(0.3); transform: scale(1.08); }
+  25%  { filter: brightness(2.5) saturate(0.3); transform: scale(1.1); }
   100% { filter: brightness(1); transform: scale(1); }
+}
+
+/* ── Ram impact burst (shockwave + particles at collision point) ── */
+.ram-impact-ring {
+  position: fixed;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 220, 80, 0.9);
+  box-shadow: 0 0 16px rgba(255, 180, 40, 0.8), 0 0 30px rgba(255,120,0,0.4), inset 0 0 10px rgba(255, 255, 200, 0.5);
+  pointer-events: none;
+  z-index: 10001;
+  transform: translate(-50%, -50%) scale(1);
+  animation: ramRingExpand 0.45s ease-out forwards;
+}
+
+@keyframes ramRingExpand {
+  0%   { transform: translate(-50%, -50%) scale(1); opacity: 1; border-color: rgba(255,255,220,1); box-shadow: 0 0 24px rgba(255,240,80,1), 0 0 48px rgba(255,180,40,0.6), inset 0 0 16px rgba(255,255,200,0.7); }
+  35%  { opacity: 0.8; border-color: rgba(255,180,40,0.8); }
+  100% { transform: translate(-50%, -50%) scale(var(--ring-scale, 7)); opacity: 0; border-color: rgba(255,120,0,0); box-shadow: 0 0 4px rgba(255,120,0,0); }
+}
+
+.ram-impact-flash {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 10002;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(255,255,240,1) 0%, rgba(255,220,80,0.8) 40%, rgba(255,140,0,0.3) 70%, transparent 100%);
+  animation: ramFlashPop ease-out forwards;
+}
+
+@keyframes ramFlashPop {
+  0%   { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+  30%  { transform: translate(-50%, -50%) scale(2.5); opacity: 0.8; }
+  100% { transform: translate(-50%, -50%) scale(4); opacity: 0; }
+}
+
+.ram-impact-particle {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 10001;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 4px currentColor;
+  animation: ramParticleFly ease-out forwards;
+}
+
+@keyframes ramParticleFly {
+  0%   { transform: translate(-50%, -50%) scale(1.5); opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--px)), calc(-50% + var(--py))) scale(0); opacity: 0; }
+}
+
+/* ── Heal glow overlay (child of healed target) ── */
+.heal-glow-overlay {
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 5;
+  background: radial-gradient(ellipse at center, rgba(0,200,60,0.25) 0%, transparent 70%);
+  border: 2px solid rgba(0,200,60,0.6);
+  box-shadow:
+    0 0 14px rgba(0,200,60,0.7),
+    0 0 30px rgba(0,200,60,0.4),
+    inset 0 0 12px rgba(0,200,60,0.3);
+  animation: healGlowPulse 0.8s ease-out forwards;
+}
+
+@keyframes healGlowPulse {
+  0%   { opacity: 0; transform: scale(0.9); }
+  20%  { opacity: 1; transform: scale(1.05); }
+  60%  { opacity: 0.7; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+
+/* ── Heal particles (rising green sparkles) ── */
+.heal-particle {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 10001;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 6px currentColor;
+  animation: healParticleRise 0.7s ease-out forwards;
+}
+
+@keyframes healParticleRise {
+  0%   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--hx)), calc(-50% + var(--hy))) scale(0.3); opacity: 0; }
 }
 
 .floating-damage {
@@ -3661,45 +3761,6 @@ body.hole-in-sky-active .targeting-overlay {
 }
 
 /* ── Floating spell/item mini-card (opponents only) ───────────────────────── */
-.floating-spell-card {
-  position: fixed;
-  transform: translateX(-50%);
-  z-index: 9998;
-  border-radius: 4px;
-  background-size: cover;
-  background-position: center;
-  border: 2px solid rgba(212,168,67,0.9);
-  box-shadow:
-    0 0 10px rgba(212,168,67,0.6),
-    0 0 20px rgba(0,0,0,0.5);
-  pointer-events: none;
-  animation: floatSpellCard 2.8s ease-out forwards;
-}
-
-/* Small label shown via ::after using the data-label attribute */
-.floating-spell-card::after {
-  content: attr(data-label);
-  position: absolute;
-  top: -18px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-family: 'Cinzel', serif;
-  font-size: 0.55rem;
-  font-weight: 700;
-  color: var(--gold);
-  text-shadow: 0 0 6px rgba(0,0,0,0.9);
-  white-space: nowrap;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
-@keyframes floatSpellCard {
-  0%   { opacity: 0; transform: translateX(-50%) translateY(0)     scale(1.15); }
-  12%  { opacity: 1; transform: translateX(-50%) translateY(-8px)  scale(1);    }
-  80%  { opacity: 1; transform: translateX(-50%) translateY(-55px) scale(1);    }
-  100% { opacity: 0; transform: translateX(-50%) translateY(-75px) scale(0.9);  }
-}
-
 .floating-heal {
   position: fixed;
   transform: translateX(-50%);
@@ -12657,7 +12718,8 @@ body.shooting-star-active #revive-picker {
 }
 
 /* ── Potion of Greed: card splash animation (center-screen grow + fade) ── */
-.pog-splash-overlay {
+/* ── Card activation splash (center-screen grow & fade) ── */
+.card-splash-overlay {
   position: fixed;
   inset: 0;
   display: flex;
@@ -12665,29 +12727,37 @@ body.shooting-star-active #revive-picker {
   justify-content: center;
   pointer-events: none;
   z-index: 10000;
-  animation: pogOverlayFade 1.5s ease-out forwards;
+  animation: cardSplashOverlayFade 1.7s ease-out forwards;
 }
-.pog-splash-card {
-  width: 120px;
-  height: 170px;
+.card-splash-card {
+  width: 160px;
+  height: 224px;
   background-size: cover;
   background-position: center;
-  border-radius: 8px;
-  box-shadow: 0 0 30px rgba(80, 200, 80, 0.8), 0 0 60px rgba(80, 200, 80, 0.4);
-  animation: pogCardGrow 1.5s ease-out forwards;
+  border-radius: 10px;
+  border: 4px solid var(--splash-border-color, #d4a843);
+  box-shadow:
+    0 0 30px var(--splash-border-color, #d4a843),
+    0 0 60px var(--splash-border-color, rgba(212,168,67,0.5)),
+    0 0 100px var(--splash-border-color, rgba(212,168,67,0.3));
+  animation: cardSplashGrow 1.7s ease-out forwards;
 }
-@keyframes pogOverlayFade {
+@keyframes cardSplashOverlayFade {
   0%   { opacity: 1; }
-  60%  { opacity: 1; }
+  55%  { opacity: 1; }
   100% { opacity: 0; }
 }
-@keyframes pogCardGrow {
-  0%   { transform: scale(0.5); opacity: 0; filter: brightness(1.5); }
-  15%  { transform: scale(1.0); opacity: 1; filter: brightness(1.2); }
-  40%  { transform: scale(1.8); opacity: 1; filter: brightness(1.0); }
-  70%  { transform: scale(2.8); opacity: 0.6; filter: brightness(0.9); }
-  100% { transform: scale(4.0); opacity: 0; filter: brightness(0.7); }
+@keyframes cardSplashGrow {
+  0%   { transform: scale(0.4); opacity: 0; filter: brightness(1.6); }
+  12%  { transform: scale(1.0); opacity: 1; filter: brightness(1.2); }
+  35%  { transform: scale(1.6); opacity: 1; filter: brightness(1.0); }
+  65%  { transform: scale(2.6); opacity: 0.5; filter: brightness(0.9); }
+  100% { transform: scale(3.8); opacity: 0; filter: brightness(0.7); }
 }
+
+/* Legacy alias for Potion of Greed snare explosion handler */
+.pog-splash-overlay { }
+.pog-splash-card { }
 
 /* ── Point-Blank Annihilation: explosion animation ── */
 .pba-explosion-blast {
@@ -13858,10 +13928,25 @@ body.shooting-star-active #revive-picker {
   background-position: center;
   border-radius: 4px;
   box-shadow: 0 0 14px rgba(100, 200, 255, 0.9), 0 0 4px rgba(255, 255, 255, 0.6);
-  transition: left 0.45s cubic-bezier(0.4, 0, 0.2, 1),
-              top  0.45s cubic-bezier(0.4, 0, 0.2, 1),
-              width 0.45s cubic-bezier(0.4, 0, 0.2, 1),
-              height 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: left 1.2s cubic-bezier(0.25, 0.1, 0.25, 1),
+              top  1.2s cubic-bezier(0.25, 0.1, 0.25, 1),
+              width 1.2s cubic-bezier(0.25, 0.1, 0.25, 1),
+              height 1.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+  opacity: 0.92;
+}
+
+.equip-fly-card {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+  border-radius: 4px;
+  box-shadow: 0 0 14px rgba(200, 100, 255, 0.9), 0 0 30px rgba(200, 100, 255, 0.4), 0 0 4px rgba(255, 255, 255, 0.6);
+  transition: left 1.2s cubic-bezier(0.25, 0.1, 0.25, 1),
+              top  1.2s cubic-bezier(0.25, 0.1, 0.25, 1),
+              width 1.2s cubic-bezier(0.25, 0.1, 0.25, 1),
+              height 1.2s cubic-bezier(0.25, 0.1, 0.25, 1);
   opacity: 0.92;
 }
 
